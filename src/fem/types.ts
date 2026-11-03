@@ -10,7 +10,8 @@ interface ElementBase {
   readonly color?: Vec3;
   /**
    * Reference vector for the profile's local z axis at the start node.
-   * Defaults: straight -> world Z (world X for vertical members); arc -> towards the arc center.
+   * Defaults: straight -> world Z (world X for vertical members);
+   * curved -> in the curve plane, perpendicular to the start tangent (towards the bend).
    */
   readonly up?: Vec3;
 }
@@ -28,11 +29,26 @@ export interface StraightElement extends ElementBase {
 export interface ArcElement extends ElementBase {
   readonly kind: "arc";
   readonly startTangent: Vec3;
-  /** Maximum arc length of one straight segment. */
+  /** Maximum length of one straight segment. */
   readonly segmentLength: number;
 }
 
-export type Element = StraightElement | ArcElement;
+/**
+ * Elliptic arc = circular arc stretched along `projectionAxis`.
+ * The base circular arc is built from start to the end projected onto the plane
+ * perpendicular to `projectionAxis` (with `startTangent`); its points are then shifted
+ * along the axis proportionally to their progress across the base chord.
+ * Projecting the result back along `projectionAxis` gives exactly the base circular arc.
+ * Example: gothic diagonal rib whose side view equals the wall arch.
+ */
+export interface EllipticArcElement extends ElementBase {
+  readonly kind: "ellipticArc";
+  readonly startTangent: Vec3;
+  readonly projectionAxis: Vec3;
+  readonly segmentLength: number;
+}
+
+export type Element = StraightElement | ArcElement | EllipticArcElement;
 
 export interface Model {
   readonly elements: readonly Element[];

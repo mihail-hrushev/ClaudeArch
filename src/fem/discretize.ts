@@ -18,24 +18,43 @@ export interface Discretized {
   readonly frames: SegmentFrame[]; // frames.length === nodes.length - 1
 }
 
-export function discretize(el: Element): Discretized {
-  const { nodes, defaultUp } =
-    el.kind === "arc"
-      ? arcNodes(el.start, el.end, el.startTangent, el.segmentLength)
-      : straightNodes(el.start, el.end, el.segmentLength);
-  return { nodes, frames: buildFrames(nodes, el.up ?? defaultUp) };
+/** Parametric curve on s ∈ [0, 1] plus the default profile "up" at the start. */
+interface Curve {
+  readonly at: (s: number) => Vec3;
+  readonly defaultUp: Vec3;
+  /** Exact segment lengths are possible without resampling (straight lines, circles). */
+  readonly uniform: boolean;
 }
 
-function straightNodes(start: Vec3, end: Vec3, segLen?: number) {
+export function discretize(el: Element): Discretized {
+  const curve = curveOf(el);
+  const segLen = el.segmentLength;
+  const nodes = curve.uniform ? sampleUniform(curve, segLen) : sampleByArcLength(curve, segLen!);
+  nodes[0] = el.start;
+  nodes[nodes.length - 1] = el.end;
+  return { nodes, frames: buildFrames(nodes, el.up ?? curve.defaultUp) };
+}
+
+function curveOf(el: Element): Curve {
+  switch (el.kind) {
+    case "straight":
+      return lineCurve(el.start, el.end);
+    case "arc":
+      return arcCurve(el.start, el.end, el.startTangent);
+    case "ellipticArc":
+      return ellipticCurve(el.start, el.end, el.startTangent, el.projectionAxis);
+  }
+}
+
+function lineCurve(start: Vec3, end: Vec3): Curve {
   const d = sub(end, start);
-  const L = len(d);
-  if (L < 1e-9) throw new Error("Element has zero length");
-  const n = segLen ? Math.max(1, Math.ceil(L / segLen - 1e-9)) : 1;
-  const nodes: Vec3[] = [];
-  for (let i = 0; i <= n; i++) nodes.push(i === n ? end : add(start, scale(d, i / n)));
-  const x = scale(d, 1 / L);
-  const defaultUp = Math.abs(dot(x, WORLD_Z)) > 0.999 ? WORLD_X : WORLD_Z;
-  return { nodes, defaultUp };
+  if (len(d) < 1e-9) throw new Error("Element has zero length");
+  const x = normalize(d);
+  return {
+    at: (s) => add(start, scale(d, s)),
+    defaultUp: Math.abs(dot(x, WORLD_Z)) > 0.999 ? WORLD_X : WORLD_Z,
+    uniform: true,
+  };
 }
 
 /**
@@ -43,9 +62,8 @@ function straightNodes(start: Vec3, end: Vec3, segLen?: number) {
  *   c = end - start, u = unit part of c perpendicular to t (points to the center)
  *   r = |c|^2 / (2 c·u), sweep = 2·angle(t, c)
  *   p(φ) = center + r(-u cosφ + t sinφ)
- * Nodes lie exactly on the arc; segment count = ceil(arcLength / segLen).
  */
-function arcNodes(start: Vec3, end: Vec3, tangent: Vec3, segLen: number) {
+function arcCurve(start: Vec3, end: Vec3, tangent: Vec3): Curve {
   const c = sub(end, start);
   const L = len(c);
   if (L < 1e-9) throw new Error("Arc has zero chord length");
@@ -55,7 +73,7 @@ function arcNodes(start: Vec3, end: Vec3, tangent: Vec3, segLen: number) {
   const pl = len(perp);
 
   if (pl < 1e-9 * L) {
-    if (ct > 0) return straightNodes(start, end, segLen); // tangent along chord -> straight
+    if (ct > 0) return lineCurve(start, end); // tangent along chord -> straight
     throw new Error("Arc tangent points directly away from the end point");
   }
 
@@ -63,15 +81,72 @@ function arcNodes(start: Vec3, end: Vec3, tangent: Vec3, segLen: number) {
   const r = (L * L) / (2 * pl);
   const center = add(start, scale(u, r));
   const sweep = 2 * Math.acos(Math.max(-1, Math.min(1, ct / L)));
-  const n = Math.max(1, Math.ceil((r * sweep) / segLen - 1e-9));
+  return {
+    at: (s) => add(center, add(scale(u, -r * Math.cos(sweep * s)), scale(t, r * Math.sin(sweep * s)))),
+    defaultUp: u,
+    uniform: true,
+  };
+}
 
-  const nodes: Vec3[] = [];
-  for (let i = 0; i < n; i++) {
-    const phi = (sweep * i) / n;
-    nodes.push(add(center, add(scale(u, -r * Math.cos(phi)), scale(t, r * Math.sin(phi)))));
+/** Circular arc in the plane ⊥ axis, linearly sheared along the axis (an affine image → ellipse). */
+function ellipticCurve(start: Vec3, end: Vec3, tangent: Vec3, projectionAxis: Vec3): Curve {
+  const a = normalize(projectionAxis);
+  const c = sub(end, start);
+  const offset = dot(c, a);
+  const baseEnd = sub(end, scale(a, offset));
+  const t = normalize(sub(tangent, scale(a, dot(tangent, a))));
+  const base = arcCurve(start, baseEnd, t);
+
+  const u = base.defaultUp; // in-plane, perpendicular to t
+  const span = dot(sub(baseEnd, start), u);
+  if (Math.abs(span) < 1e-9) throw new Error("Elliptic arc: base chord has no extent across the tangent");
+
+  const at = (s: number): Vec3 => {
+    const p = base.at(s);
+    return add(p, scale(a, (offset * dot(sub(p, start), u)) / span));
+  };
+  // Profile up: perpendicular to the tangent, in the (sheared) curve plane.
+  const mappedU = normalize(add(u, scale(a, offset / span)));
+  return { at, defaultUp: mappedU, uniform: false };
+}
+
+/** Equal parameter steps — exact for lines and circles. */
+function sampleUniform(curve: Curve, segLen?: number): Vec3[] {
+  const n = segLen ? Math.max(1, Math.ceil(curveLength(curve) / segLen - 1e-9)) : 1;
+  return Array.from({ length: n + 1 }, (_, i) => curve.at(i / n));
+}
+
+/** Nodes at equal arc-length spacing (≤ segLen), via a dense lookup table. */
+function sampleByArcLength(curve: Curve, segLen: number, dense = 2000): Vec3[] {
+  const pts: Vec3[] = [];
+  const cum: number[] = [0];
+  for (let i = 0; i <= dense; i++) {
+    pts.push(curve.at(i / dense));
+    if (i > 0) cum.push(cum[i - 1] + len(sub(pts[i], pts[i - 1])));
   }
-  nodes.push(end);
-  return { nodes, defaultUp: u };
+  const total = cum[dense];
+  const n = Math.max(1, Math.ceil(total / segLen - 1e-9));
+  const nodes: Vec3[] = [pts[0]];
+  let j = 0;
+  for (let k = 1; k < n; k++) {
+    const target = (total * k) / n;
+    while (cum[j + 1] < target) j++;
+    const f = (target - cum[j]) / (cum[j + 1] - cum[j]);
+    nodes.push(curve.at((j + f) / dense));
+  }
+  nodes.push(pts[dense]);
+  return nodes;
+}
+
+function curveLength(curve: Curve, samples = 512): number {
+  let L = 0;
+  let prev = curve.at(0);
+  for (let i = 1; i <= samples; i++) {
+    const p = curve.at(i / samples);
+    L += len(sub(p, prev));
+    prev = p;
+  }
+  return L;
 }
 
 /** Initial frame from `up`, then parallel-transported along the polyline (no twist). */

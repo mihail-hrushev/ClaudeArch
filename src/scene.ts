@@ -9,7 +9,16 @@ import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { GridMaterial } from "@babylonjs/materials/grid/gridMaterial";
 import { buildModel } from "./render/elementMesh";
+import { createAxes } from "./render/axes";
 import { testModel } from "./testModel";
+import { gothicVault } from "./generators/gothicVault";
+import { squareProfile } from "./fem/profiles";
+
+/** Pick the model via URL: ?model=test shows the axis test elements, default is the vault. */
+function selectModel() {
+  if (new URLSearchParams(location.search).get("model") === "test") return testModel;
+  return gothicVault({ width: 400, depth: 200, height: 300, profile: squareProfile(8), segmentLength: 20 });
+}
 
 /** World convention: right-handed, Z up (same coordinates as the FEM model). */
 export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
@@ -17,7 +26,7 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
   scene.useRightHandedSystem = true;
   scene.clearColor = new Color4(0.1, 0.11, 0.13, 1);
 
-  const camera = new ArcRotateCamera("camera", -Math.PI / 3, Math.PI / 3, 350, new Vector3(50, 50, 40), scene);
+  const camera = new ArcRotateCamera("camera", -Math.PI / 3, Math.PI / 2.6, 750, new Vector3(0, 0, 150), scene);
   camera.upVector = new Vector3(0, 0, 1);
   camera.lowerRadiusLimit = 5;
   camera.upperRadiusLimit = 3000;
@@ -34,7 +43,7 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
   sun.intensity = 0.7;
 
   // Ground grid in the XY plane (CreateGround builds XZ, rotate it to face +Z).
-  const ground = MeshBuilder.CreateGround("ground", { width: 400, height: 400 }, scene);
+  const ground = MeshBuilder.CreateGround("ground", { width: 1000, height: 1000 }, scene);
   ground.rotation.x = Math.PI / 2;
   ground.isPickable = false;
   const grid = new GridMaterial("grid", scene);
@@ -46,7 +55,8 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
   grid.backFaceCulling = false;
   ground.material = grid;
 
-  buildModel(testModel, scene);
+  createAxes(scene);
+  buildModel(selectModel(), scene);
 
   return scene;
 }
