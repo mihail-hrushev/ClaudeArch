@@ -32,7 +32,8 @@ export function buildElementMesh(el: Element, scene: Scene): Mesh {
   vd.indices = data.indices;
   vd.applyToMesh(mesh);
   mesh.material = materialFor(scene, el.color ?? [0.7, 0.7, 0.7]);
-  mesh.enableEdgesRendering(0.95, true);
+  // Smooth (round) profiles: skip facet lines (30° for 12 segments), keep caps / sharp joints.
+  mesh.enableEdgesRendering(el.profile.smooth ? 0.8 : 0.95, true);
   mesh.edgesWidth = 1.5;
   mesh.edgesColor = new Color4(0, 0, 0, 0.6);
   return mesh;

@@ -32,16 +32,31 @@ export function sweepProfile(d: Discretized, profile: Profile): MeshData {
     });
   });
 
+  // 2D outward normals: per edge (flat) and per vertex (smooth = average of adjacent edges).
+  const edgeN = P.map((p, j) => {
+    const q = P[(j + 1) % P.length];
+    return normalize2(q[1] - p[1], -(q[0] - p[0])); // CCW edge (ey, ez) -> (ez, -ey)
+  });
+  const vertN = P.map((_, j) => {
+    const a = edgeN[(j + P.length - 1) % P.length];
+    const b = edgeN[j];
+    return normalize2(a[0] + b[0], a[1] + b[1]);
+  });
+
   // Side faces.
   for (let k = 0; k < frames.length; k++) {
     const f = frames[k];
+    const toWorld = ([ny, nz]: readonly [number, number]) => normalize(add(scale(f.y, ny), scale(f.z, nz)));
     for (let j = 0; j < P.length; j++) {
       const j1 = (j + 1) % P.length;
-      const ey = P[j1][0] - P[j][0];
-      const ez = P[j1][1] - P[j][1];
-      // Outward normal of a CCW edge in (y, z) is (ez, -ey).
-      const n = normalize(add(scale(f.y, ez), scale(f.z, -ey)));
-      addPolygon(mesh, [rings[k][j], rings[k][j1], rings[k + 1][j1], rings[k + 1][j]], n);
+      const quad = [rings[k][j], rings[k][j1], rings[k + 1][j1], rings[k + 1][j]];
+      if (profile.smooth) {
+        const nj = toWorld(vertN[j]);
+        const nj1 = toWorld(vertN[j1]);
+        addPolygon(mesh, quad, [nj, nj1, nj1, nj]);
+      } else {
+        addPolygon(mesh, quad, toWorld(edgeN[j]));
+      }
     }
   }
 
@@ -52,12 +67,18 @@ export function sweepProfile(d: Discretized, profile: Profile): MeshData {
   return mesh;
 }
 
-/** Convex polygon as a triangle fan, CCW around `normal`. */
-function addPolygon(mesh: MeshData, pts: Vec3[], normal: Vec3) {
+function normalize2(y: number, z: number): [number, number] {
+  const l = Math.hypot(y, z);
+  return [y / l, z / l];
+}
+
+/** Convex polygon as a triangle fan, CCW around its normal (one for all, or one per vertex). */
+function addPolygon(mesh: MeshData, pts: Vec3[], normal: Vec3 | Vec3[]) {
   const base = mesh.positions.length / 3;
-  for (const p of pts) {
+  pts.forEach((p, i) => {
+    const n = Array.isArray(normal[0]) ? (normal as Vec3[])[i] : (normal as Vec3);
     mesh.positions.push(p[0], p[1], p[2]);
-    mesh.normals.push(normal[0], normal[1], normal[2]);
-  }
+    mesh.normals.push(n[0], n[1], n[2]);
+  });
   for (let i = 1; i < pts.length - 1; i++) mesh.indices.push(base, base + i, base + i + 1);
 }

@@ -34,17 +34,18 @@ export interface ArcElement extends ElementBase {
 }
 
 /**
- * Elliptic arc = circular arc stretched along `projectionAxis`.
- * The base circular arc is built from start to the end projected onto the plane
- * perpendicular to `projectionAxis` (with `startTangent`); its points are then shifted
- * along the axis proportionally to their progress across the base chord.
- * Projecting the result back along `projectionAxis` gives exactly the base circular arc.
- * Example: gothic diagonal rib whose side view equals the wall arch.
+ * Elliptic arc = affine stretch of a reference circular arc.
+ * The reference arc runs start → `baseEnd` with `startTangent`. Each of its points is
+ * shifted by (end − baseEnd) proportionally to its progress across the reference chord,
+ * so the result ends at `end`. Projected along (end − baseEnd), the elliptic arc
+ * coincides exactly with the reference arc.
+ * Example: gothic diagonal rib (corner → keystone) whose side view equals the wall arch
+ * (corner → wall apex = baseEnd).
  */
 export interface EllipticArcElement extends ElementBase {
   readonly kind: "ellipticArc";
   readonly startTangent: Vec3;
-  readonly projectionAxis: Vec3;
+  readonly baseEnd: Vec3;
   readonly segmentLength: number;
 }
 

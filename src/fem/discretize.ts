@@ -42,7 +42,7 @@ function curveOf(el: Element): Curve {
     case "arc":
       return arcCurve(el.start, el.end, el.startTangent);
     case "ellipticArc":
-      return ellipticCurve(el.start, el.end, el.startTangent, el.projectionAxis);
+      return ellipticCurve(el.start, el.end, el.startTangent, el.baseEnd);
   }
 }
 
@@ -88,25 +88,24 @@ function arcCurve(start: Vec3, end: Vec3, tangent: Vec3): Curve {
   };
 }
 
-/** Circular arc in the plane ⊥ axis, linearly sheared along the axis (an affine image → ellipse). */
-function ellipticCurve(start: Vec3, end: Vec3, tangent: Vec3, projectionAxis: Vec3): Curve {
-  const a = normalize(projectionAxis);
-  const c = sub(end, start);
-  const offset = dot(c, a);
-  const baseEnd = sub(end, scale(a, offset));
-  const t = normalize(sub(tangent, scale(a, dot(tangent, a))));
-  const base = arcCurve(start, baseEnd, t);
+/**
+ * Reference circular arc start → baseEnd, sheared by (end − baseEnd) in proportion to
+ * progress across the reference chord (an affine image of a circle → ellipse).
+ */
+function ellipticCurve(start: Vec3, end: Vec3, tangent: Vec3, baseEnd: Vec3): Curve {
+  const base = arcCurve(start, baseEnd, tangent);
+  const shift = sub(end, baseEnd);
 
-  const u = base.defaultUp; // in-plane, perpendicular to t
+  const u = base.defaultUp; // in the reference plane, perpendicular to the tangent
   const span = dot(sub(baseEnd, start), u);
-  if (Math.abs(span) < 1e-9) throw new Error("Elliptic arc: base chord has no extent across the tangent");
+  if (Math.abs(span) < 1e-9) throw new Error("Elliptic arc: reference chord has no extent across the tangent");
 
   const at = (s: number): Vec3 => {
     const p = base.at(s);
-    return add(p, scale(a, (offset * dot(sub(p, start), u)) / span));
+    return add(p, scale(shift, dot(sub(p, start), u) / span));
   };
-  // Profile up: perpendicular to the tangent, in the (sheared) curve plane.
-  const mappedU = normalize(add(u, scale(a, offset / span)));
+  // Profile up: the reference "up" mapped through the same shear (stays in the curve plane).
+  const mappedU = normalize(add(u, scale(shift, 1 / span)));
   return { at, defaultUp: mappedU, uniform: false };
 }
 
