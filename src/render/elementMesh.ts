@@ -11,7 +11,7 @@ import { plateSolid } from "../fem/plate";
 
 /** Render geometry of one element. */
 export function elementGeometry(el: Element): MeshData {
-  return el.kind === "plate" ? plateSolid(el) : sweepProfile(discretize(el), el.profile);
+  return el.kind === "plate" ? plateSolid(el) : sweepProfile(discretize(el), el.profile, el.endCut);
 }
 
 /** Elements sharing a batch key are baked into one mesh (one draw call). */

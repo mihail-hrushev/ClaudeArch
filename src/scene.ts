@@ -6,10 +6,11 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { buildModel } from "./render/elementMesh";
 import { createAxes } from "./render/axes";
 import { createEnvironment } from "./render/environment";
+import { createStatsOverlay } from "./render/stats";
 import { testModel } from "./testModel";
 import { gothicVault } from "./generators/gothicVault";
 import { prismVault } from "./generators/prismVault";
-import { circleProfile, prismProfile } from "./fem/profiles";
+import { circleProfile, prismProfile, rectangleProfile } from "./fem/profiles";
 import { type Instance, WORLD_FRAME, assemble } from "./fem/placement";
 import { ringLayout, fitRingBay } from "./generators/layouts";
 import { removeDuplicateMembers } from "./fem/dedupe";
@@ -22,9 +23,15 @@ const DIAGONAL_PROFILE = prismProfile(10, 4, 10);
 /** Inner columns (grey) carrying the vault springing. */
 const COLUMN_PROFILE = circleProfile(8);
 const COLUMN_HEIGHT = 300;
+/** Window tracery (sill, mullion, lancets, oculus). */
+const TRACERY_PROFILE = circleProfile(3);
+/** Window border (main arch, jambs, sill): 8 deep × 5 wide in the window face. */
+const WINDOW_FRAME_PROFILE = rectangleProfile(8, 5);
+/** Rose tracery: rectangular, 6 deep (through the wall) × 3 wide (in the window face). */
+const ROSE_PROFILE = rectangleProfile(6, 3);
 
 /** Half ring (apse) of prism vaults, narrow ends looking at the world origin. */
-function prismHalfRing(count = 6): Instance[] {
+function prismHalfRing(count = 4): Instance[] {
   const length = 350;
   const width2 = 250;
   const sweep = Math.PI;
@@ -34,8 +41,17 @@ function prismHalfRing(count = 6): Instance[] {
     length, width1, width2, height: 350,
     profile: WALL_PROFILE, diagonalProfile: DIAGONAL_PROFILE,
     segmentLength: 20, offset: RIB_OFFSET,
+    ridgeRibs: true,
     springing: COLUMN_HEIGHT,
-    columns: { profile: COLUMN_PROFILE, at: "inner" },
+    columns: { profile: COLUMN_PROFILE, at: "all" },
+    window: {
+      profile: TRACERY_PROFILE,
+      frameProfile: WINDOW_FRAME_PROFILE,
+      lights: 7,
+      lancetPointedness: 3,
+      rose: { spokes: 16, profile: ROSE_PROFILE, pointedness: 2.5 },
+      glass: {},
+    },
     glass: {},
   });
   return ringLayout(prism, { count, radius, sweep, name: "prism" });
@@ -69,6 +85,8 @@ function selectInstances(): Instance[] {
 export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
   const scene = new Scene(engine);
   scene.useRightHandedSystem = true;
+  // No hover interaction yet: skip ray-picking all triangles on every mouse move.
+  scene.skipPointerMovePicking = true;
 
   const camera = new ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.8, 2000, new Vector3(0, 250, 300), scene);
   camera.upVector = new Vector3(0, 0, 1);
@@ -90,6 +108,8 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
   }
   // Neighbouring bays share corner columns: drop the coincident copies.
   environment.addModel(buildModel(removeDuplicateMembers(assemble(instances)), scene));
+
+  createStatsOverlay(scene);
 
   return scene;
 }

@@ -43,6 +43,7 @@ export function transformElement(el: Element, f: LocalFrame, id = el.id): Elemen
     start: toWorldPoint(f, el.start),
     end: toWorldPoint(f, el.end),
     up: el.up && toWorldVector(f, el.up),
+    endCut: el.endCut && toWorldVector(f, el.endCut),
   };
   switch (el.kind) {
     case "straight":

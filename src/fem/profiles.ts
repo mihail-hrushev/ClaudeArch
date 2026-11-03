@@ -44,6 +44,21 @@ export function circleProfile(radius: number, segments = 12): Profile {
   };
 }
 
+/** Rectangle: `width` along local y, `height` along local z, centered on the axis. */
+export function rectangleProfile(width: number, height: number): Profile {
+  const w = width / 2;
+  const h = height / 2;
+  return {
+    name: `RHS${width}x${height}`,
+    outline: [
+      [-w, -h],
+      [w, -h],
+      [w, h],
+      [-w, h],
+    ],
+  };
+}
+
 export function squareProfile(size: number): Profile {
   const h = size / 2;
   return {

@@ -36,26 +36,28 @@ interface LightPreset {
   luminance: number;
   rayleigh: number;
   exposure: number;
+  /** Cloud cover over the sun, 0..1: dims and spreads the sun disc and its glare. */
+  cloudiness: number;
 }
 
 const PRESETS: LightPreset[] = [
   {
     name: "day", elevation: 52, azimuth: 235,
-    sunColor: new Color3(1, 0.97, 0.9), sunIntensity: 1.6,
-    skyColor: new Color3(0.75, 0.85, 1), groundColor: new Color3(0.35, 0.33, 0.3), hemiIntensity: 0.55,
-    fog: new Color3(0.72, 0.8, 0.9), turbidity: 6, luminance: 1, rayleigh: 1.6, exposure: 1.1,
+    sunColor: new Color3(1, 0.97, 0.9), sunIntensity: 1.0,
+    skyColor: new Color3(0.75, 0.85, 1), groundColor: new Color3(0.35, 0.33, 0.3), hemiIntensity: 0.85,
+    fog: new Color3(0.72, 0.8, 0.9), turbidity: 6, luminance: 1, rayleigh: 1.6, exposure: 1.0, cloudiness: 0.55,
   },
   {
     name: "golden hour", elevation: 14, azimuth: 205,
-    sunColor: new Color3(1, 0.72, 0.42), sunIntensity: 1.9,
-    skyColor: new Color3(0.6, 0.65, 0.85), groundColor: new Color3(0.35, 0.25, 0.2), hemiIntensity: 0.45,
-    fog: new Color3(0.85, 0.68, 0.55), turbidity: 10, luminance: 1, rayleigh: 2.5, exposure: 1.2,
+    sunColor: new Color3(1, 0.72, 0.42), sunIntensity: 1.2,
+    skyColor: new Color3(0.6, 0.65, 0.85), groundColor: new Color3(0.35, 0.25, 0.2), hemiIntensity: 0.75,
+    fog: new Color3(0.85, 0.68, 0.55), turbidity: 10, luminance: 1, rayleigh: 2.5, exposure: 1.1, cloudiness: 0.5,
   },
   {
     name: "dusk", elevation: 3, azimuth: 190,
-    sunColor: new Color3(1, 0.45, 0.25), sunIntensity: 1.3,
-    skyColor: new Color3(0.35, 0.38, 0.6), groundColor: new Color3(0.18, 0.13, 0.15), hemiIntensity: 0.4,
-    fog: new Color3(0.42, 0.36, 0.45), turbidity: 14, luminance: 1.05, rayleigh: 3.5, exposure: 1.35,
+    sunColor: new Color3(1, 0.45, 0.25), sunIntensity: 0.9,
+    skyColor: new Color3(0.35, 0.38, 0.6), groundColor: new Color3(0.18, 0.13, 0.15), hemiIntensity: 0.65,
+    fog: new Color3(0.42, 0.36, 0.45), turbidity: 14, luminance: 1.05, rayleigh: 3.5, exposure: 1.25, cloudiness: 0.45,
   },
 ];
 
@@ -109,7 +111,7 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
   const baseMat = new StandardMaterial("ground_base", scene);
   baseMat.specularColor = Color3.Black();
   base.material = baseMat;
-  base.receiveShadows = true;
+  // No receiveShadows: the shadow catcher above draws the shadows (saves a full-screen shadow lookup).
 
   const ground = MeshBuilder.CreateGround("ground", { width: 1000, height: 1000 }, scene);
   ground.rotation.x = Math.PI / 2;
@@ -129,18 +131,22 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
   catcher.isPickable = false;
   const catcherMat = new ShadowOnlyMaterial("shadow_catcher", scene);
   catcherMat.activeLight = sun;
-  catcherMat.alpha = 0.45;
+  catcherMat.alpha = 0.28;
   catcher.material = catcherMat;
   catcher.receiveShadows = true;
 
   // --- Shadows ---
   const shadows = new ShadowGenerator(2048, sun);
+  // PCF (medium) gives soft edges at a fraction of the cost of contact-hardening (PCSS).
   shadows.usePercentageCloserFiltering = true;
-  shadows.filteringQuality = ShadowGenerator.QUALITY_HIGH;
+  shadows.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
   shadows.bias = 0.0008;
   shadows.normalBias = 0.02;
-  shadows.darkness = 0.15;
+  shadows.darkness = 0.45; // 0 = black, 1 = no shadow
   shadows.transparencyShadow = true;
+  // The model is static: render the shadow map once, re-render only when the light or casters change.
+  const shadowMap = shadows.getShadowMap()!;
+  shadowMap.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
 
   // --- Sky reflections for glass ---
   const probe = new ReflectionProbe("sky_probe", 256, scene, true, true);
@@ -154,16 +160,16 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
   // --- Post-processing: HDR, ACES tone mapping, bloom on sun glints, vignette ---
   const pipeline = new DefaultRenderingPipeline("pipeline", true, scene, [camera]);
   pipeline.samples = 4;
-  pipeline.fxaaEnabled = true;
+  pipeline.fxaaEnabled = false; // MSAA already smooths edges
   pipeline.bloomEnabled = true;
-  pipeline.bloomThreshold = 0.85;
-  pipeline.bloomWeight = 0.35;
-  pipeline.bloomKernel = 64;
+  pipeline.bloomThreshold = 0.95;
+  pipeline.bloomWeight = 0.2;
+  pipeline.bloomKernel = 32;
   pipeline.bloomScale = 0.5;
   const ip = pipeline.imageProcessing;
   ip.toneMappingEnabled = true;
   ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
-  ip.contrast = 1.15;
+  ip.contrast = 1.0;
   ip.vignetteEnabled = true;
   ip.vignetteWeight = 1.6;
   ip.vignetteColor = new Color4(0.05, 0.04, 0.08, 0);
@@ -185,6 +191,7 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
     sky.turbidity = p.turbidity;
     sky.luminance = p.luminance;
     sky.rayleigh = p.rayleigh;
+    sky.cloudiness = p.cloudiness;
 
     scene.fogColor = p.fog;
     scene.clearColor = new Color4(p.fog.r, p.fog.g, p.fog.b, 1);
@@ -193,6 +200,7 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
     ip.exposure = p.exposure;
 
     probe.cubeTexture.resetRefreshCounter();
+    shadowMap.resetRefreshCounter();
   }
 
   const requested = new URLSearchParams(location.search).get("light");
@@ -226,6 +234,7 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
           mesh.receiveShadows = true;
         }
       }
+      shadowMap.resetRefreshCounter();
     },
   };
 }

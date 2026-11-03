@@ -14,16 +14,25 @@ export interface MeshData {
  * cross-section of every segment is exactly the profile (no pinching at bends).
  * Flat shaded: each face owns its vertices.
  */
-export function sweepProfile(d: Discretized, profile: Profile): MeshData {
+export function sweepProfile(d: Discretized, profile: Profile, endCut?: Vec3): MeshData {
   const { nodes, frames } = d;
   const P = profile.outline;
   const mesh: MeshData = { positions: [], normals: [], indices: [] };
+  const last = nodes.length - 1;
+  const lastX = frames[frames.length - 1].x;
+  // End cut plane normal, oriented along the end tangent (ignored if nearly parallel to the axis).
+  let endN: Vec3 | null = null;
+  if (endCut) {
+    const c = normalize(endCut);
+    const s = dot(c, lastX);
+    if (Math.abs(s) > 0.1) endN = s > 0 ? c : scale(c, -1);
+  }
 
   // Profile ring at each node.
   const rings: Vec3[][] = nodes.map((node, i) => {
     const f = frames[Math.max(0, i - 1)]; // incoming segment frame (outgoing for the first node)
-    const isInterior = i > 0 && i < nodes.length - 1;
-    const miter = isInterior ? normalize(add(frames[i - 1].x, frames[i].x)) : null;
+    const isInterior = i > 0 && i < last;
+    const miter = isInterior ? normalize(add(frames[i - 1].x, frames[i].x)) : i === last ? endN : null;
     return P.map(([py, pz]) => {
       const o = add(scale(f.y, py), scale(f.z, pz));
       if (!miter) return add(node, o);
@@ -62,7 +71,7 @@ export function sweepProfile(d: Discretized, profile: Profile): MeshData {
 
   // End caps.
   addPolygon(mesh, [...rings[0]].reverse(), scale(frames[0].x, -1));
-  addPolygon(mesh, rings[rings.length - 1], frames[frames.length - 1].x);
+  addPolygon(mesh, rings[last], endN ?? lastX);
 
   return mesh;
 }

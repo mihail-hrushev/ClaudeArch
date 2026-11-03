@@ -18,6 +18,11 @@ interface MemberBase extends ElementBase {
    * curved -> in the curve plane, perpendicular to the start tangent (towards the bend).
    */
   readonly up?: Vec3;
+  /**
+   * Normal of the plane the member end is cut on (through `end`; default: perpendicular to
+   * the end tangent). E.g. the mirror plane of a pointed arch, so both halves close at the apex.
+   */
+  readonly endCut?: Vec3;
 }
 
 export interface StraightElement extends MemberBase {
