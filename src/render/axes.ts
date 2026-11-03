@@ -3,7 +3,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Element } from "../fem/types";
 import { squareProfile } from "../fem/profiles";
 import { type LocalFrame, WORLD_FRAME, transformElement } from "../fem/placement";
-import { buildElementMesh } from "./elementMesh";
+import { buildModel } from "./elementMesh";
 
 /** Axes gizmo (X red, Y green, Z blue) of a coordinate system, independent from the model. */
 export function createAxes(
@@ -18,8 +18,8 @@ export function createAxes(
     { id: "Y", kind: "straight", start: [0, 0, 0], end: [0, length, 0], profile, color: [0.2, 0.85, 0.3] },
     { id: "Z", kind: "straight", start: [0, 0, 0], end: [0, 0, length], profile, color: [0.2, 0.4, 1] },
   ];
-  for (const el of axes) {
-    const mesh = buildElementMesh(transformElement(el, frame, `${name}/${el.id}`), scene);
+  const world = { elements: axes.map((el) => transformElement(el, frame, `${name}/${el.id}`)) };
+  for (const mesh of buildModel(world, scene, name)) {
     mesh.isPickable = false;
     mesh.parent = root;
   }

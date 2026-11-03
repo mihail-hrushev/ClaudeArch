@@ -1,16 +1,22 @@
 import type { Model } from "../fem/types";
 import type { Profile } from "../fem/profiles";
-import { prismVault } from "./prismVault";
+import { type GlassParams, prismVault } from "./prismVault";
 
 export interface GothicVaultParams {
   /** Span along X. */
   readonly width: number;
   /** Span along Y. */
   readonly depth: number;
-  /** Apex height of the wall arches and the keystone. */
+  /** Rise of the wall arch apexes and the keystone above the springing level. */
   readonly height: number;
   readonly profile: Profile;
+  /** Profile of the diagonal ribs (default: `profile`). */
+  readonly diagonalProfile?: Profile;
   readonly segmentLength: number;
+  /** Rib offset inside the bay outline, see PrismVaultParams.offset. */
+  readonly offset?: number;
+  /** Glass ceiling on the vault webs, see PrismVaultParams.glass. */
+  readonly glass?: GlassParams;
 }
 
 /**
@@ -25,6 +31,9 @@ export function gothicVault(p: GothicVaultParams): Model {
     width2: p.depth,
     height: p.height,
     profile: p.profile,
+    diagonalProfile: p.diagonalProfile,
     segmentLength: p.segmentLength,
+    offset: p.offset,
+    glass: p.glass,
   });
 }

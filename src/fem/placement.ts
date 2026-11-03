@@ -1,4 +1,4 @@
-import type { Element, Model } from "./types";
+import type { ArchRef, Element, Model } from "./types";
 import { type Vec3, add, sub, scale, dot, cross, normalize, WORLD_X, WORLD_Y, WORLD_Z } from "./vec";
 
 /** Orthonormal right-handed local coordinate system (UCS) expressed in world coordinates. */
@@ -30,6 +30,14 @@ export const toWorldPoint = (f: LocalFrame, p: Vec3): Vec3 => add(f.origin, toWo
 
 /** Maps every point / direction of an element from frame `f` to world coordinates. */
 export function transformElement(el: Element, f: LocalFrame, id = el.id): Element {
+  if (el.kind === "plate") {
+    return { ...el, id, corners: el.corners.map((p) => toWorldPoint(f, p)) };
+  }
+  const arch = (a: ArchRef): ArchRef => ({
+    start: toWorldPoint(f, a.start),
+    end: toWorldPoint(f, a.end),
+    startTangent: toWorldVector(f, a.startTangent),
+  });
   const common = {
     id,
     start: toWorldPoint(f, el.start),
@@ -46,7 +54,17 @@ export function transformElement(el: Element, f: LocalFrame, id = el.id): Elemen
         ...el,
         ...common,
         startTangent: toWorldVector(f, el.startTangent),
+        baseStart: el.baseStart && toWorldPoint(f, el.baseStart),
         baseEnd: toWorldPoint(f, el.baseEnd),
+      };
+    case "groinArc":
+      return {
+        ...el,
+        ...common,
+        archA: arch(el.archA),
+        dirA: toWorldVector(f, el.dirA),
+        archB: arch(el.archB),
+        dirB: toWorldVector(f, el.dirB),
       };
   }
 }
@@ -58,7 +76,7 @@ export interface Instance {
   readonly frame: LocalFrame;
 }
 
-/** Flattens instances into one world-space model; element ids become `<instance>/<element>`. */
+/** Flattens instances into one world-space model; ids become `<instance>/<id>`. */
 export function assemble(instances: readonly Instance[]): Model {
   return {
     elements: instances.flatMap((inst) =>
