@@ -1,5 +1,5 @@
-import type { ArchRef, Element, Model } from "./types";
-import { type Vec3, add, sub, scale, dot, cross, normalize, WORLD_X, WORLD_Y, WORLD_Z } from "./vec";
+import type { Element, Model } from "./types";
+import { type Vec3, add, sub, scale, cross, normalize, WORLD_X, WORLD_Y, WORLD_Z } from "./vec";
 
 /** Orthonormal right-handed local coordinate system (UCS) expressed in world coordinates. */
 export interface LocalFrame {
@@ -11,17 +11,12 @@ export interface LocalFrame {
 
 export const WORLD_FRAME: LocalFrame = { origin: [0, 0, 0], x: WORLD_X, y: WORLD_Y, z: WORLD_Z };
 
-/** Frame from an origin, a local X direction and an up hint (local Z, orthogonalized). */
-export function frameFromX(origin: Vec3, xDir: Vec3, up: Vec3 = WORLD_Z): LocalFrame {
-  const z0 = normalize(up);
-  const x = normalize(sub(xDir, scale(z0, dot(xDir, z0)))); // keep X perpendicular to up
-  const z = normalize(cross(x, cross(z0, x)));
-  return { origin, x, y: cross(z, x), z };
+/** Frame with X exactly towards `xPoint`, Y = up × X, Z = X × Y. */
+export function frameFromUp(origin: Vec3, xPoint: Vec3, up: Vec3 = WORLD_Z): LocalFrame {
+  const x = normalize(sub(xPoint, origin));
+  const y = normalize(cross(up, x));
+  return { origin, x, y, z: cross(x, y) };
 }
-
-/** Frame at `origin` whose local +X points (horizontally) at `target`, local Z = up. */
-export const lookAt = (origin: Vec3, target: Vec3, up: Vec3 = WORLD_Z): LocalFrame =>
-  frameFromX(origin, sub(target, origin), up);
 
 export const toWorldVector = (f: LocalFrame, v: Vec3): Vec3 =>
   add(add(scale(f.x, v[0]), scale(f.y, v[1])), scale(f.z, v[2]));
@@ -33,11 +28,6 @@ export function transformElement(el: Element, f: LocalFrame, id = el.id): Elemen
   if (el.kind === "plate") {
     return { ...el, id, corners: el.corners.map((p) => toWorldPoint(f, p)) };
   }
-  const arch = (a: ArchRef): ArchRef => ({
-    start: toWorldPoint(f, a.start),
-    end: toWorldPoint(f, a.end),
-    startTangent: toWorldVector(f, a.startTangent),
-  });
   const common = {
     id,
     start: toWorldPoint(f, el.start),
@@ -50,23 +40,8 @@ export function transformElement(el: Element, f: LocalFrame, id = el.id): Elemen
       return { ...el, ...common };
     case "arc":
       return { ...el, ...common, startTangent: toWorldVector(f, el.startTangent) };
-    case "ellipticArc":
-      return {
-        ...el,
-        ...common,
-        startTangent: toWorldVector(f, el.startTangent),
-        baseStart: el.baseStart && toWorldPoint(f, el.baseStart),
-        baseEnd: toWorldPoint(f, el.baseEnd),
-      };
-    case "groinArc":
-      return {
-        ...el,
-        ...common,
-        archA: arch(el.archA),
-        dirA: toWorldVector(f, el.dirA),
-        archB: arch(el.archB),
-        dirB: toWorldVector(f, el.dirB),
-      };
+    case "polyline":
+      return { ...el, ...common, nodes: el.nodes.map((p) => toWorldPoint(f, p)) };
   }
 }
 

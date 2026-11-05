@@ -13,14 +13,31 @@ function sameStraight(a: Element, b: Element, tol: number): boolean {
   );
 }
 
+/** Same polyline member: same profile and coincident nodes in the same order. */
+function samePolyline(a: Element, b: Element, tol: number): boolean {
+  if (a.kind !== "polyline" || b.kind !== "polyline") return false;
+  if (a.profile.name !== b.profile.name || a.nodes.length !== b.nodes.length) return false;
+  return a.nodes.every((p, i) => near(p, b.nodes[i], tol));
+}
+
 /**
- * Removes coincident duplicate straight members, e.g. a column shared by two neighbouring
- * bays after assembly. The first occurrence (and its id) is kept.
+ * Removes coincident duplicate members, e.g. a column shared by two neighbouring bays or a
+ * rib shared by two cut surfaces after assembly. The first occurrence (and its id) is kept.
  */
 export function removeDuplicateMembers(model: Model, tol = 1e-6): Model {
   const kept: Element[] = [];
+  // Candidates by the X of their midpoint (independent of direction), in unit-wide cells.
+  const cells = new Map<number, Element[]>();
   for (const el of model.elements) {
-    if (!kept.some((k) => sameStraight(k, el, tol))) kept.push(el);
+    if (el.kind !== "straight" && el.kind !== "polyline") {
+      kept.push(el);
+      continue;
+    }
+    const cell = Math.round((el.start[0] + el.end[0]) / 2);
+    const candidates = [cell - 1, cell, cell + 1].flatMap((c) => cells.get(c) ?? []);
+    if (candidates.some((k) => sameStraight(k, el, tol) || samePolyline(k, el, tol))) continue;
+    kept.push(el);
+    cells.set(cell, [...(cells.get(cell) ?? []), el]);
   }
   return { ...model, elements: kept };
 }

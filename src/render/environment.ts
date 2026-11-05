@@ -1,4 +1,5 @@
 import { Scene } from "@babylonjs/core/scene";
+import type { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import type { Camera } from "@babylonjs/core/Cameras/camera";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
@@ -8,11 +9,16 @@ import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent";
 import { ReflectionProbe } from "@babylonjs/core/Probes/reflectionProbe";
 import "@babylonjs/core/Rendering/depthRendererSceneComponent";
 import { RenderTargetTexture } from "@babylonjs/core/Materials/Textures/renderTargetTexture";
+import { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture";
+import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { FresnelParameters } from "@babylonjs/core/Materials/fresnelParameters";
 import { ImageProcessingConfiguration } from "@babylonjs/core/Materials/imageProcessingConfiguration";
 import { DefaultRenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { SSAO2RenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline";
+import { setupDepthOfField } from "./depthOfField";
+import "@babylonjs/core/Rendering/geometryBufferRendererSceneComponent";
+import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { SkyMaterial } from "@babylonjs/materials/sky/skyMaterial";
@@ -38,6 +44,8 @@ interface LightPreset {
   exposure: number;
   /** Cloud cover over the sun, 0..1: dims and spreads the sun disc and its glare. */
   cloudiness: number;
+  /** HDRI shown instead of the procedural sky; `turn` aligns its sun with the preset's, in degrees. */
+  hdri?: { url: string; turn: number };
 }
 
 const PRESETS: LightPreset[] = [
@@ -59,9 +67,22 @@ const PRESETS: LightPreset[] = [
     skyColor: new Color3(0.35, 0.38, 0.6), groundColor: new Color3(0.18, 0.13, 0.15), hemiIntensity: 0.65,
     fog: new Color3(0.42, 0.36, 0.45), turbidity: 14, luminance: 1.05, rayleigh: 3.5, exposure: 1.25, cloudiness: 0.45,
   },
+  {
+    // Sun height and colours measured from the image (Poly Haven, CC0).
+    name: "hdri", elevation: 48, azimuth: 235,
+    sunColor: new Color3(1, 1, 0.93), sunIntensity: 1.0,
+    skyColor: new Color3(0.78, 0.84, 1), groundColor: new Color3(0.4, 0.37, 0.33), hemiIntensity: 0.9,
+    fog: new Color3(0.44, 0.47, 0.57), turbidity: 6, luminance: 1, rayleigh: 1.6, exposure: 1.3, cloudiness: 0.55,
+    hdri: { url: "hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr", turn: 180 },
+  },
 ];
 
 const DEG = Math.PI / 180;
+/** Ambient occlusion: how far contact shading reaches, in scene units, and how dark it gets. */
+const AO_RADIUS = 60;
+const AO_STRENGTH = 1.5;
+/** Sky box and ground slab size: the fog reaches the horizon inside it, its corners stay inside the far plane. */
+const SKY_SIZE = 22000;
 
 /** Unit vector pointing from the scene towards the sun (Z up). */
 function sunVector(p: LightPreset): Vector3 {
@@ -81,8 +102,12 @@ export interface Environment {
 /**
  * Sky, sun, shadows, fog and post-processing for a right-handed, Z-up scene.
  * Press "L" to cycle the lighting presets; "?light=dusk" etc. selects the initial one.
+ * Press "O" to toggle ambient occlusion; "?ao=off" leaves it out altogether.
+ * Press "B" to toggle the depth of field; "?dof=off" starts with it off.
+ * The default is the HDRI sky; glass reflects whichever sky is shown through the probe.
  */
-export function createEnvironment(scene: Scene, camera: Camera): Environment {
+export function createEnvironment(scene: Scene, orbit: ArcRotateCamera, fly: Camera): Environment {
+  const cameras = [orbit, fly];
   // --- Lights ---
   const hemi = new HemisphericLight("hemi", new Vector3(0, 0, 1), scene);
   const sun = new DirectionalLight("sun", new Vector3(0, 0, -1), scene);
@@ -97,14 +122,35 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
   sky.mieCoefficient = 0.006;
   sky.dithering = true;
   sky.fogEnabled = false;
-  const skybox = MeshBuilder.CreateBox("skybox", { size: 9000, sideOrientation: 1 }, scene);
+  const skybox = MeshBuilder.CreateBox("skybox", { size: SKY_SIZE, sideOrientation: 1 }, scene);
   skybox.material = sky;
   skybox.infiniteDistance = true;
   skybox.isPickable = false;
 
+  /** Sky material for an HDRI, loaded the first time it is needed. */
+  const hdriSkies = new Map<string, StandardMaterial>();
+  const hdriSky = ({ url, turn }: NonNullable<LightPreset["hdri"]>) => {
+    const existing = hdriSkies.get(url);
+    if (existing) return existing;
+    const texture = new HDRCubeTexture(url, scene, 1024, true, false);
+    texture.coordinatesMode = Texture.SKYBOX_MODE;
+    // Cube textures are Y up, the scene Z up.
+    texture.setReflectionTextureMatrix(Matrix.RotationX(-Math.PI / 2).multiply(Matrix.RotationY(turn * DEG)));
+    texture.onLoadObservable.addOnce(() => probe.cubeTexture.resetRefreshCounter());
+    const material = new StandardMaterial(`sky_${url}`, scene);
+    material.backFaceCulling = false;
+    material.disableLighting = true;
+    material.fogEnabled = false;
+    material.diffuseColor = Color3.Black();
+    material.specularColor = Color3.Black();
+    material.reflectionTexture = texture;
+    hdriSkies.set(url, material);
+    return material;
+  };
+
   // --- Ground: a soft-coloured slab, the engineering grid and a shadow catcher on top ---
   const groundSize = 8000;
-  const base = MeshBuilder.CreateGround("ground_base", { width: groundSize, height: groundSize }, scene);
+  const base = MeshBuilder.CreateGround("ground_base", { width: SKY_SIZE, height: SKY_SIZE }, scene);
   base.rotation.x = Math.PI / 2;
   base.position.z = -5; // well below the grid: avoids z-fighting at long camera distances
   base.isPickable = false;
@@ -157,8 +203,29 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
   scene.fogMode = Scene.FOGMODE_EXP2;
   scene.fogDensity = 0.00022;
 
-  // --- Post-processing: HDR, ACES tone mapping, bloom on sun glints, vignette ---
-  const pipeline = new DefaultRenderingPipeline("pipeline", true, scene, [camera]);
+  // --- Ambient occlusion: contact shading from the opaque geometry only. Glass stays out of the
+  // depth pass, so the structure behind it keeps its shading. Set up before the pipeline below,
+  // so that tone mapping comes after it. ---
+  const gBuffer = new URLSearchParams(location.search).get("ao") === "off" ? null : scene.enableGeometryBufferRenderer();
+  let ao: SSAO2RenderingPipeline | null = null;
+  if (gBuffer) {
+    gBuffer.renderTransparentMeshes = false;
+    gBuffer.renderList = [base];
+    ao = new SSAO2RenderingPipeline("ssao", scene, { ssaoRatio: 1, blurRatio: 1 }, cameras, true);
+    ao.radius = AO_RADIUS;
+    ao.totalStrength = AO_STRENGTH;
+    ao.samples = 24;
+    ao.maxZ = 8000;
+    ao.minZAspect = 0.2;
+    // Thin frames at a distance speckle: full resolution, and a denoiser that smooths across them.
+    ao.expensiveBlur = true;
+    ao.bilateralSamples = 16;
+    ao.bilateralSoften = 0.3;
+    ao.bilateralTolerance = 0.6;
+  }
+
+  // --- Post-processing: HDR, ACES tone mapping, bloom on sun glints, vignette, depth of field ---
+  const pipeline = new DefaultRenderingPipeline("pipeline", true, scene, cameras);
   pipeline.samples = 4;
   pipeline.fxaaEnabled = false; // MSAA already smooths edges
   pipeline.bloomEnabled = true;
@@ -174,6 +241,7 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
   ip.vignetteWeight = 1.6;
   ip.vignetteColor = new Color4(0.05, 0.04, 0.08, 0);
   ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
+  setupDepthOfField(scene, pipeline, orbit);
 
   function apply(p: LightPreset) {
     const toSun = sunVector(p);
@@ -187,6 +255,7 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
     hemi.groundColor = p.groundColor;
     hemi.intensity = p.hemiIntensity;
 
+    skybox.material = p.hdri ? hdriSky(p.hdri) : sky;
     sky.sunPosition = toSun.scale(500);
     sky.turbidity = p.turbidity;
     sky.luminance = p.luminance;
@@ -205,7 +274,7 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
 
   const requested = new URLSearchParams(location.search).get("light");
   let index = Math.max(0, PRESETS.findIndex((p) => p.name.replace(" ", "") === requested?.replace(/[\s-]/g, "")));
-  if (requested === null) index = 1; // golden hour by default: long shadows, warm glass glints
+  if (requested === null) index = PRESETS.length - 1; // the HDRI sky by default
   apply(PRESETS[index]);
 
   const cycle = () => {
@@ -214,6 +283,7 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
   };
   window.addEventListener("keydown", (e) => {
     if (e.key === "l" || e.key === "L") cycle();
+    if ((e.key === "o" || e.key === "O") && ao) ao.totalStrength = ao.totalStrength > 0 ? 0 : AO_STRENGTH;
   });
 
   return {
@@ -226,12 +296,13 @@ export function createEnvironment(scene: Scene, camera: Camera): Environment {
         if (mat.alpha < 1) {
           // Glass: sky reflection that strengthens at grazing angles.
           mat.reflectionTexture = probe.cubeTexture;
-          mat.reflectionFresnelParameters = new FresnelParameters({ bias: 0.08, power: 2.5, leftColor: Color3.White(), rightColor: Color3.Black() });
+          mat.reflectionFresnelParameters = new FresnelParameters({ bias: mesh.metadata?.reflection ?? 0.08, power: 2.5, leftColor: Color3.White(), rightColor: Color3.Black() });
           mat.specularPower = 256;
           shadows.addShadowCaster(mesh); // faint tinted shadow (transparencyShadow)
         } else {
           shadows.addShadowCaster(mesh);
           mesh.receiveShadows = true;
+          gBuffer?.renderList?.push(mesh);
         }
       }
       shadowMap.resetRefreshCounter();

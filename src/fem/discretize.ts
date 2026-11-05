@@ -28,8 +28,14 @@ interface Curve {
 
 export function discretize(el: Member): Discretized {
   const curve = curveOf(el);
+  if (el.kind === "polyline") {
+    const polyNodes = [...el.nodes];
+    return { nodes: polyNodes, frames: buildFrames(polyNodes, el.up ?? curve.defaultUp) };
+  }
   const segLen = el.segmentLength;
-  const nodes = curve.uniform ? sampleUniform(curve, segLen) : sampleByArcLength(curve, segLen!);
+  const nodes = el.kind === "arc" && el.divisions
+    ? el.divisions.map(curve.at)
+    : curve.uniform ? sampleUniform(curve, segLen) : sampleByArcLength(curve, segLen!);
   nodes[0] = el.start;
   nodes[nodes.length - 1] = el.end;
   return { nodes, frames: buildFrames(nodes, el.up ?? curve.defaultUp) };
@@ -41,58 +47,20 @@ function curveOf(el: Member): Curve {
       return lineCurve(el.start, el.end);
     case "arc":
       return arcCurve(el.start, el.end, el.startTangent);
-    case "ellipticArc":
-      return ellipticCurve(el.start, el.end, el.startTangent, el.baseStart ?? el.start, el.baseEnd);
-    case "groinArc":
-      return groinCurve(el);
+    case "polyline":
+      return polylineCurve(el.nodes);
   }
 }
 
-/**
- * Point of a member at height z (members rising monotonically in z, e.g. ribs).
- * Exact on the member's curve (bisection on the curve parameter), not on its polyline.
- */
-export function pointAtHeight(el: Member, z: number): Vec3 {
-  if (el.kind === "groinArc") return groinPoint(el, z);
-  return curvePointAtZ(curveOf(el), z);
-}
-
-function curvePointAtZ(curve: Curve, z: number): Vec3 {
-  let lo = 0;
-  let hi = 1;
-  const rising = curve.at(1)[2] >= curve.at(0)[2];
-  for (let i = 0; i < 60; i++) {
-    const mid = (lo + hi) / 2;
-    if (curve.at(mid)[2] < z === rising) lo = mid;
-    else hi = mid;
-  }
-  return curve.at((lo + hi) / 2);
-}
-
-function groinPoint(el: Extract<Member, { kind: "groinArc" }>, z: number): Vec3 {
-  const a = curvePointAtZ(arcCurve(el.archA.start, el.archA.end, el.archA.startTangent), z);
-  const b = curvePointAtZ(arcCurve(el.archB.start, el.archB.end, el.archB.startTangent), z);
-  const p = intersectPlanLines(a, el.dirA, b, el.dirB);
-  return [p[0], p[1], z];
-}
-
-/** Plan (XY) intersection of the lines p + t·u and q + s·v. */
-export function intersectPlanLines(p: Vec3, u: Vec3, q: Vec3, v: Vec3): Vec3 {
-  const denom = u[0] * v[1] - u[1] * v[0];
-  if (Math.abs(denom) < 1e-12) throw new Error("Parallel plan lines do not intersect");
-  const w = sub(q, p);
-  const t = (w[0] * v[1] - w[1] * v[0]) / denom;
-  return add(p, scale(u, t));
-}
-
-function groinCurve(el: Extract<Member, { kind: "groinArc" }>): Curve {
-  const z0 = el.start[2];
-  const z1 = el.end[2];
-  const plan = sub(el.end, el.start);
+/** Linear between the nodes, equal parameter steps per segment. */
+function polylineCurve(nodes: readonly Vec3[]): Curve {
+  const n = nodes.length - 1;
   return {
-    at: (s) => groinPoint(el, z0 + (z1 - z0) * s),
-    // Springing tangent is vertical: profile up = horizontal, towards the end in plan.
-    defaultUp: normalize([plan[0], plan[1], 0]),
+    at: (s) => {
+      const i = Math.min(n - 1, Math.floor(s * n));
+      return add(nodes[i], scale(sub(nodes[i + 1], nodes[i]), s * n - i));
+    },
+    defaultUp: lineCurve(nodes[0], nodes[1]).defaultUp,
     uniform: false,
   };
 }
@@ -137,29 +105,6 @@ function arcCurve(start: Vec3, end: Vec3, tangent: Vec3): Curve {
     defaultUp: u,
     uniform: true,
   };
-}
-
-/**
- * Reference circular arc baseStart → baseEnd, shifted by (start − baseStart) blended into
- * (end − baseEnd) in proportion to progress across the reference chord
- * (an affine image of a circle → ellipse).
- */
-function ellipticCurve(start: Vec3, end: Vec3, tangent: Vec3, baseStart: Vec3, baseEnd: Vec3): Curve {
-  const base = arcCurve(baseStart, baseEnd, tangent);
-  const shift0 = sub(start, baseStart);
-  const dShift = sub(sub(end, baseEnd), shift0);
-
-  const u = base.defaultUp; // in the reference plane, perpendicular to the tangent
-  const span = dot(sub(baseEnd, baseStart), u);
-  if (Math.abs(span) < 1e-9) throw new Error("Elliptic arc: reference chord has no extent across the tangent");
-
-  const at = (s: number): Vec3 => {
-    const p = base.at(s);
-    return add(add(p, shift0), scale(dShift, dot(sub(p, baseStart), u) / span));
-  };
-  // Profile up: the reference "up" mapped through the same shear (stays in the curve plane).
-  const mappedU = normalize(add(u, scale(dShift, 1 / span)));
-  return { at, defaultUp: mappedU, uniform: false };
 }
 
 /** Equal parameter steps — exact for lines and circles. */
