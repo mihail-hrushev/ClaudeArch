@@ -6,11 +6,13 @@ import type { Operator } from "../operator";
 import { glazingOperators } from "./glazing";
 import { supportOperators } from "./supports";
 import { circulationOperators } from "./circulation";
+import { layoutOperators } from "./layout";
 
 export const OPERATORS: readonly Operator[] = [
   ...glazingOperators,
   ...supportOperators,
   ...circulationOperators,
+  ...layoutOperators,
 ];
 
 export const operatorByName = new Map(OPERATORS.map((op) => [op.name, op]));

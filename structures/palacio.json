@@ -1,0 +1,78 @@
+{
+  "name": "palacio",
+  "description": "Palacio de Cristal, Retiro Park, Madrid (1887): a Greek cross of glazed arms ending in apses, a lower aisle all round, a drum and a cloister-vault dome with a lantern over the crossing, a stone portico, a terrace with a balustrade, a stair and the lake. The same cross outline, moved in for each layer, carries the outer wall, the column lines and the nave; the bays are set along the nave and carried to every layer.",
+  "color": [0.93, 0.92, 0.88],
+  "view": { "target": [0, -300, 700], "radius": 4600, "alpha": 124.38, "beta": 80 },
+  "profiles": {
+    "rib": { "rect": ["50mm", "140mm"] },
+    "cutRib": { "rect": ["80mm", "200mm"] },
+    "frame": { "rect": ["30mm", "80mm"] },
+    "mullion": { "rect": ["30mm", "60mm"] },
+    "wallShaft": { "circle": "90mm" },
+    "wallBase": { "square": "252mm" },
+    "wallCapital": { "rect": ["306mm", "198mm"] },
+    "naveShaft": { "circle": "120mm" },
+    "naveBase": { "square": "336mm" },
+    "naveCapital": { "rect": ["408mm", "264mm"] },
+    "arch": { "circle": "50mm" },
+    "beam": { "rect": ["120mm", "240mm"] }
+  },
+  "glass": {
+    "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "gap": "15mm", "alpha": 0.5, "reflection": 0.5 }
+  },
+  "surfaces": {
+    "glazed": {
+      "ribStep": "2.8m",
+      "tile": { "preset": "clear", "align": "top-center" },
+      "profiles": { "mainRib": "rib", "cutRib": "cutRib", "horizontalFrame": "frame", "verticalFrame": "mullion" }
+    },
+    "wall": { "extends": "glazed" },
+    "aisleRoof": { "extends": "glazed", "tile": { "align": "bottom-center" } },
+    "clerestory": { "extends": "glazed" },
+    "vault": { "extends": "glazed", "tile": { "align": "bottom-center" } },
+    "drum": { "extends": "glazed" },
+    "dome": { "extends": "glazed", "tile": { "align": "bottom-center" } }
+  },
+  "levels": {
+    "floor": "1.2m",
+    "wallFoot": "1.5m",
+    "eaves": "6.4m",
+    "aisleRoof": "8m",
+    "naveSpring": "10.61m",
+    "naveCrown": "14.61m",
+    "drumTop": "18m",
+    "domeApex": "22.6m",
+    "lanternTop": "24m"
+  },
+  "plan": {
+    "outer": { "cross": { "right": "20m", "rear": "14m", "left": "20m" }, "width": "14m", "apseSides": 3, "crossing": "8m" },
+    "nave": { "cross": { "right": "20m", "rear": "14m", "left": "20m" }, "width": "8m", "apseSides": 3 },
+    "wallLine": { "offset": "outer", "by": "-296mm" },
+    "naveLine": { "cross": { "right": "20m", "rear": "14m", "left": "20m" }, "width": "7.348m", "apseSides": 3 },
+    "crossing": { "rect": ["8m", "8m"] },
+    "lanternBase": { "rect": ["1.6m", "1.6m"] }
+  },
+  "build": [
+    { "op": "bays", "name": "bays", "plan": "nave", "step": "2.8m",
+      "measure": { "plan": "outer", "sides": [0, 1, 2, 5, 6, 7, 10, 11, 12] }, "even": [0, 1, 2, 5, 6, 7, 10, 11, 12] },
+
+    { "op": "walls", "name": "walls", "plan": "outer", "type": "wall", "foot": "wallFoot", "top": "eaves", "bays": "bays" },
+    { "op": "roof", "name": "aisleRoofs", "plan": "outer", "type": "aisleRoof", "eaves": "eaves", "rise": "1.6m", "run": "3m", "slope": "level", "bays": "bays" },
+
+    { "op": "walls", "name": "clerestories", "plan": "nave", "sides": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15], "type": "clerestory",
+      "foot": "aisleRoof", "top": "naveSpring", "bays": "bays" },
+    { "op": "roof", "name": "vaults", "plan": "nave", "sides": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15], "type": "vault",
+      "eaves": "naveSpring", "rise": "4m", "run": "4m", "slope": 90, "valleys": false, "bays": "bays" },
+
+    { "op": "walls", "name": "drumFront", "plan": "nave", "sides": [14], "type": "drum", "foot": "aisleRoof", "top": "drumTop", "bays": "bays" },
+    { "op": "walls", "name": "drumRight", "plan": "crossing", "sides": [1], "type": "drum", "foot": "naveSpring", "top": "drumTop", "ribStations": [],
+      "openings": [{ "arch": { "side": ["crossing", 1], "spring": "naveSpring", "radius": "4m" } }] },
+    { "op": "walls", "name": "drumRear", "plan": "crossing", "sides": [2], "type": "drum", "foot": "naveSpring", "top": "drumTop", "ribStations": [],
+      "openings": [{ "arch": { "side": ["crossing", 2], "spring": "naveSpring", "radius": "4m" } }] },
+    { "op": "walls", "name": "drumLeft", "plan": "crossing", "sides": [3], "type": "drum", "foot": "naveSpring", "top": "drumTop", "ribStations": [],
+      "openings": [{ "arch": { "side": ["crossing", 3], "spring": "naveSpring", "radius": "4m" } }] },
+
+    { "op": "dome", "name": "domes", "plan": "crossing", "type": "dome", "base": "drumTop", "rise": "4.6m", "opening": "1.6m", "ribStations": [] },
+    { "op": "pyramid", "name": "lantern", "plan": "lanternBase", "base": { "on": "domes" }, "apex": "lanternTop", "thickness": 1, "color": [0.55, 0.58, 0.6] }
+  ]
+}
