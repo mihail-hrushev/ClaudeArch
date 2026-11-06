@@ -72,7 +72,9 @@
     "tower2": { "beside": "tower1", "direction": 0 },
     "tower0": { "beside": "tower1", "direction": 180 },
     "towers": { "union": ["tower0", "tower1", "tower2"] },
-    "ground": { "hull": ["tower0", "tower1", "tower2"], "margin": "3m" }
+    "ground": { "hull": ["tower0", "tower1", "tower2"], "margin": "3m" },
+    "stairLine0": { "offset": "tower0", "by": "-800mm" },
+    "stairLine2": { "offset": "tower2", "by": "-800mm" }
   },
   "build": [
     { "op": "columns", "name": "wallColumns", "at": { "plan": "ground", "opposite": "towers", "inset": "96mm" }, "profile": "arch", "top": "groundEaves" },
@@ -97,6 +99,12 @@
     { "op": "arches", "name": "walkArches", "between": "towerColumns", "profile": "arch", "under": "floorBeamSoffit" },
     { "op": "deck", "name": "walkDeck", "type": "deck", "outer": "walkEdge", "inner": "towers", "level": "walk", "evenBays": false },
     { "op": "handrail", "name": "walkOuter", "type": "walk", "along": { "plan": "walkEdge", "level": "walk" } },
-    { "op": "handrail", "name": "walkInner", "type": "walk", "along": { "plan": "towers", "level": "walk" }, "padding": "300mm" }
+    { "op": "stair", "name": "stair2", "type": "tower", "height": "walk", "landing": "bend",
+      "path": [{ "corner": ["stairLine2", 5] }, { "corner": ["stairLine2", 6] }, { "corner": ["stairLine2", 7] }, { "side": ["stairLine2", 7], "at": "1200mm" }],
+      "arrival": { "exit": { "side": "right", "reach": "200mm", "column": { "corner": ["tower2", 7] }, "arch": "arch" } } },
+    { "op": "stair", "name": "stair0", "type": "tower", "height": "walk", "landing": "bend",
+      "path": [{ "corner": ["stairLine0", 1] }, { "corner": ["stairLine0", 2] }, { "corner": ["stairLine0", 3] }, { "side": ["stairLine0", 3], "at": "1200mm" }],
+      "arrival": { "exit": { "side": "right", "reach": "200mm", "column": { "corner": ["tower0", 3] }, "arch": "arch" } } },
+    { "op": "handrail", "name": "walkInner", "type": "walk", "along": { "plan": "towers", "level": "walk" }, "padding": "300mm", "gaps": ["stair2", "stair0"] }
   ]
 }
