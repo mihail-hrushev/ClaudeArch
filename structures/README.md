@@ -54,6 +54,8 @@ the layout engine, the surface types are the stylesheet.
     "tower": { "regular": 8, "apothem": "4.2m" },     // or "radius"; "center", "rotation" (degrees)
     "hall":  { "hull": ["tower"], "margin": "3m" },   // convex hull around outlines, moved out
     "edge":  { "offset": "tower", "by": "1.5m" },     // moved out (in when negative), sides parallel
+    "annex": { "beside": "tower", "direction": 0 },   // a copy moved along a direction (degrees) until it touches
+    "core":  { "union": ["tower", "annex"] },         // outline around outlines that touch or overlap
     "box":   { "rect": ["20m", "8m"], "center": [0, "4m"] },
     "any":   { "polygon": [[0, 0], ["10m", 0], ["10m", "6m"]] }
   },
@@ -80,13 +82,13 @@ true: the rib step is rounded so whole bays divide the width), `ribsOnGrid`, `al
 | op | what it does | main fields |
 |---|---|---|
 | `surface` | one glass surface placed explicitly | `base`, `alongX`, `alongZ`, `tangent?`, `facing?` |
-| `walls` | upright walls along the sides of a plan | `plan`, `sides?`, `foot?` (height), `top` (height), `overlap?`, `inset?` |
-| `roof` | a face rising from every side; leaves a height field | `plan`, `eaves`, `rise?`, `run?`, `slope?` (degrees at the eaves) |
+| `walls` | upright walls along the sides of a plan | `plan`, `sides?`, `foot?` (height), `top` (height), `overlap?`, `inset?`, `bays?` (`{columns, clear?, within?}`: one surface per bay between the columns standing in the wall line) |
+| `roof` | a face rising from every side; leaves a height field | `plan`, `eaves`, `rise?`, `run?`, `slope?` (degrees at the eaves), `bays?` (as for walls) |
 | `dome` | a faceted dome over a plan | `plan`, `base`, `rise`, `apex?`, `springing?` (90 = vertical, `"flat"`, or degrees) |
 | `floor` | a tiled floor over a plan, structure below | `plan`, `level`, `along?`, `ceiling?` |
-| `columns` | columns at corners, along sides or at points; leaves a columns result | `at` (`{plan, corners?, inset?}` / `{plan, sides?, spacing or bays, inset?, includeCorners?}` / `{points}`), `profile`, `foot?`, `top` (height), `orient?` |
-| `arches` | arches between consecutive columns, a ring unless `open` | `between`, `profile`, `spring`, `rise?` (segmental), `inward?` |
-| `beams` | beams between consecutive columns at a level or following a roof | `between`, `profile`, `level` (height), `open?`, `inward?` |
+| `columns` | columns at corners, along sides, opposite other columns, or at points; leaves a columns result | `at` (`{plan, corners?, inset?}` / `{plan, sides?, spacing or bays, inset?, includeCorners?}` / `{plan, sides?, opposite, inset?, includeCorners?}`: at the corners and opposite the columns of a result or the convex corners of an outline, each projected onto its nearest side / `{points}`), `profile`, `foot?`, `top` (height), `orient?` |
+| `arches` | arches between consecutive columns (a ring unless `open`), or from each column to the nearest of another result | `between`, `to?`, `profile`, `spring` or `under` (a height, or `{columns: offset}`: the line between the column tops; the arch is raised until its back just touches it), `rise?` (segmental), `inward?` |
+| `beams` | beams between consecutive columns, or to the nearest of another result, at a level or following a roof | `between`, `to?`, `profile`, `level` (height), `open?`, `inward?` |
 | `member` | one straight / arc / polyline member | `profile`, `start`, `end`, `startTangent?` (arc), `nodes?` (polyline), `up?` |
 | `plate` | one flat convex plate | `corners`, `thickness`, `color?`, `alpha?`, `reflection?`, `bevel?` |
 | `slab` | a plate covering a plan outline | `plan`, `level`, `thickness`, `color?` |

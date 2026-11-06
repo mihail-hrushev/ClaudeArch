@@ -95,9 +95,43 @@ export const surface = defineOperator({
   },
 });
 
+/**
+ * Bays of a side between the columns of a result standing in its line: a column whose axis is
+ * `within` the line (default: its own width) splits the side, each bay stopping `clear` short of
+ * its axis (default: the column's half width); the corner cuts move in by the same amount.
+ */
+const Bays = z.object({ columns: z.string(), clear: Length.optional(), within: Length.optional() }).strict();
+
+interface Bay {
+  readonly from: number;
+  readonly to: number;
+  /** Corner cuts of this bay: the side's at its ends, moved in to the column faces. */
+  readonly cuts: readonly CutPlane[];
+}
+
+function sideBays(ctx: BuildContext, spec: z.infer<typeof Bays> | undefined, s: Side, path: string): Bay[] {
+  if (!spec) return [{ from: 0, to: s.length, cuts: s.corners }];
+  const columns = ctx.get(spec.columns, "columns", `${path}.bays.columns`).columns;
+  const clear = ctx.optionalLength(spec.clear, `${path}.bays.clear`);
+  const within = ctx.optionalLength(spec.within, `${path}.bays.within`);
+  const halfWidth = (c: (typeof columns)[number]) => Math.max(...c.profile.outline.map(([y]) => Math.abs(y)));
+  const marks = columns
+    .map((c) => ({ u: dot(sub(c.at, s.a), s.along), away: Math.abs(dot(sub(c.at, s.a), s.inward)), clear: clear ?? halfWidth(c) }))
+    .filter((m) => m.away <= (within ?? 2 * (clear ?? m.clear)) && m.u > m.clear && m.u < s.length - m.clear)
+    .sort((a, b) => a.u - b.u);
+  const nearest = (q: Vec3) => columns.reduce((best, c) => (len(sub(c.at, q)) < len(sub(best.at, q)) ? c : best));
+  const moved = (c: CutPlane, q: Vec3): CutPlane => ({ point: add(c.point, scale(c.normal, clear ?? halfWidth(nearest(q)))), normal: c.normal });
+  const corners = [moved(s.corners[0], s.a), moved(s.corners[1], s.b)];
+  const ends = [0, ...marks.flatMap((m) => [m.u - m.clear, m.u + m.clear]), s.length];
+  return Array.from({ length: marks.length + 1 }, (_, j): Bay => ({
+    from: ends[2 * j], to: ends[2 * j + 1],
+    cuts: [...(j === 0 ? [corners[0]] : []), ...(j === marks.length ? [corners[1]] : [])],
+  }));
+}
+
 export const walls = defineOperator({
   name: "walls",
-  description: "Upright glass walls along the sides of a plan outline, from a foot level (or a roof they stand on) up to a top level (or a roof they stop under); neighbouring walls meet on the corner bisectors.",
+  description: "Upright glass walls along the sides of a plan outline, from a foot level (or a roof they stand on) up to a top level (or a roof they stop under); neighbouring walls meet on the corner bisectors. With `bays`, every side is split into bays between the columns standing in its line.",
   schema: z.object({
     op: z.literal("walls"),
     name: z.string(),
@@ -111,6 +145,8 @@ export const walls = defineOperator({
     overlap: Length.optional(),
     /** Inset of the wall line from the plan outline, towards the inside. */
     inset: Length.optional(),
+    /** Split every side at the columns of a result standing in its line, one surface per bay. */
+    bays: Bays.optional(),
   }).strict(),
   run(ctx, p, path) {
     const plan = ctx.plan(p.plan, `${path}.plan`);
@@ -119,9 +155,10 @@ export const walls = defineOperator({
     const overlap = ctx.optionalLength(p.overlap, `${path}.overlap`) ?? 10;
     const inset = ctx.optionalLength(p.inset, `${path}.inset`) ?? 0;
     const sloping = (h: typeof footAt, a: Vec3, b: Vec3) => Math.abs(h(a) - h(b)) > 1e-9;
-    const blocks = selectedSides(plan.sides, p.sides).map(({ side: s, k }) => {
-      const [a, b] = [add(s.a, scale(s.inward, inset)), add(s.b, scale(s.inward, inset))];
-      const cuts: CutPlane[] = [...s.corners];
+    const blocks = selectedSides(plan.sides, p.sides).flatMap(({ side: s, k }) => sideBays(ctx, p.bays, s, path).map((bay, j) => {
+      const along = (u: number) => add(add(s.a, scale(s.along, u)), scale(s.inward, inset));
+      const [a, b] = [along(bay.from), along(bay.to)];
+      const cuts: CutPlane[] = [...bay.cuts];
       let foot = Math.min(footAt(a), footAt(b));
       let top = Math.max(topAt(a), topAt(b));
       if (sloping(footAt, a, b)) {
@@ -135,10 +172,10 @@ export const walls = defineOperator({
         cuts.push({ point: lifted(a, topAt(a)), normal: up[2] > 0 ? scale(up, -1) : up });
       }
       if (top <= foot) throw new BuildError(`side ${k}: top ${top} is not above foot ${foot}`, path);
-      return place(ctx, `${p.name}_side${k}`, surfaceParams(ctx, p, path, {
+      return place(ctx, p.bays ? `${p.name}_side${k}_bay${j}` : `${p.name}_side${k}`, surfaceParams(ctx, p, path, {
         base: lifted(a, foot), alongX: lifted(b, foot), alongZ: lifted(a, top), cuts,
       }));
-    });
+    }));
     ctx.put(p.name, { kind: "surfaces", blocks }, path);
   },
 });
@@ -175,6 +212,8 @@ export const roof = defineOperator({
     run: Length.optional(),
     /** Angle of the roof at the eaves, degrees above the horizontal (default: straight to the rise). */
     slope: Num.optional(),
+    /** Split every face at the columns of a result standing in the eaves line, one surface per bay. */
+    bays: Bays.optional(),
   }).strict(),
   run(ctx, p, path) {
     const plan = ctx.plan(p.plan, `${path}.plan`);
@@ -188,13 +227,13 @@ export const roof = defineOperator({
     }
     const section = sectionHeight(run, rise, p.slope);
     const heightAt = (q: Vec3) => eaves + section(Math.min(...plan.sides.map((s) => dot(sub(q, s.a), s.inward))));
-    const blocks = selectedSides(plan.sides, p.sides).map(({ side: s, k }) => {
-      const base = lifted(s.a, eaves);
-      return place(ctx, `${p.name}_side${k}`, surfaceParams(ctx, p, path, {
-        base, alongX: lifted(s.b, eaves), alongZ: add(add(base, scale(s.inward, run)), [0, 0, rise]),
-        tangent: p.slope === undefined ? undefined : tangentOf(p.slope), cuts: s.corners,
+    const blocks = selectedSides(plan.sides, p.sides).flatMap(({ side: s, k }) => sideBays(ctx, p.bays, s, path).map((bay, j) => {
+      const base = lifted(add(s.a, scale(s.along, bay.from)), eaves);
+      return place(ctx, p.bays ? `${p.name}_side${k}_bay${j}` : `${p.name}_side${k}`, surfaceParams(ctx, p, path, {
+        base, alongX: lifted(add(s.a, scale(s.along, bay.to)), eaves), alongZ: add(add(base, scale(s.inward, run)), [0, 0, rise]),
+        tangent: p.slope === undefined ? undefined : tangentOf(p.slope), cuts: bay.cuts,
       }));
-    });
+    }));
     ctx.put(p.name, { kind: "height", field: { heightAt }, blocks }, path);
   },
 });
@@ -266,4 +305,51 @@ export const floor = defineOperator({
   },
 });
 
-export const glazingOperators = [surface, walls, roof, dome, floor];
+export const deck = defineOperator({
+  name: "deck",
+  description: "Tiled deck bays between two outlines, e.g. a walkway between beam lines: one bay between each two consecutive corners of the outer outline, closed along the inner outline between the corners nearest to them. The tiles' top is at `level` with the structure hanging below; each bay's tile grid is centred on it and runs along its inner edge.",
+  schema: z.object({
+    op: z.literal("deck"),
+    name: z.string(),
+    ...Glazing,
+    outer: z.string(),
+    inner: z.string(),
+    /** The walking surface. */
+    level: Length,
+  }).strict(),
+  run(ctx, p, path) {
+    const outer = ctx.plan(p.outer, `${path}.outer`).polygon;
+    const inner = ctx.plan(p.inner, `${path}.inner`).polygon;
+    const z = ctx.length(p.level, `${path}.level`) - ctx.surfaceType(p.type, `${path}.type`).tile.thickness / 2;
+    const n = inner.length;
+    const distance = (a: P2, b: P2) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const nearest = (q: P2) => inner.reduce((best, c, j) => (distance(c, q) < distance(inner[best], q) ? j : best), 0);
+    const blocks = outer.map((o, k) => {
+      const o1 = outer[(k + 1) % outer.length];
+      const [j0, j1] = [nearest(o), nearest(o1)];
+      // Back along the inner outline from the corner nearest the bay's end to the one nearest its start.
+      const chain: P2[] = [];
+      for (let j = j1; ; j = (j + n - 1) % n) {
+        chain.push(inner[j]);
+        if (j === j0 || chain.length > n) break;
+      }
+      const outline = [o, o1, ...chain].map((q) => at(q, z));
+      const origin = scale(add(outline[0], outline[1]), 0.5);
+      const [first, last] = [outline[2], outline[outline.length - 1]];
+      // Local Z square to the inner edge, towards it; X across the bay.
+      const zAxis = len(sub(last, first)) > 1e-9 ? normalize(cross(sub(last, first), WORLD_Z)) : normalize(sub(first, origin));
+      const xAxis = cross(zAxis, WORLD_Z);
+      const xs = outline.map((q) => dot(sub(q, origin), xAxis));
+      const zs = outline.map((q) => dot(sub(q, origin), zAxis));
+      const corner = (u: number, v: number) => add(add(origin, scale(xAxis, u)), scale(zAxis, v));
+      const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+      return place(ctx, `${p.name}${k}`, surfaceParams(ctx, p, path, {
+        base: corner(x0, z0), alongX: corner(x1, z0), alongZ: corner(x0, z1), facing: WORLD_Z,
+        cuts: outline.map((q, j) => ({ point: q, normal: normalize(cross(WORLD_Z, sub(outline[(j + 1) % outline.length], q))) })),
+      }));
+    });
+    ctx.put(p.name, { kind: "surfaces", blocks }, path);
+  },
+});
+
+export const glazingOperators = [surface, walls, roof, dome, floor, deck];

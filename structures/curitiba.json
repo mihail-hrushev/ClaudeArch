@@ -1,0 +1,94 @@
+{
+  "name": "curitiba",
+  "description": "Curitiba Botanical Garden style greenhouse: three octagonal domed towers touching corner to corner on a glazed ground floor with a curved roof, an ambulatory of columns and arches around them carrying a walk floor reached by stairs.",
+  "color": [0.97, 0.97, 0.95],
+  "view": { "target": [0, 0, 600], "radius": 3900, "alpha": 127.24, "beta": 72 },
+  "profiles": {
+    "rib": { "rect": ["50mm", "140mm"] },
+    "cutRib": { "rect": ["80mm", "200mm"] },
+    "frame": { "rect": ["30mm", "80mm"] },
+    "mullion": { "rect": ["30mm", "60mm"] },
+    "deckRib": { "rect": ["50mm", "88mm"] },
+    "deckFrame": { "rect": ["30mm", "60mm"] },
+    "column": { "circle": "150mm" },
+    "arch": { "circle": "50mm" },
+    "beam": { "rect": ["120mm", "240mm"] },
+    "post": { "square": "60mm" },
+    "topRail": { "circle": "25mm" },
+    "middleRail": { "circle": "12mm" },
+    "kickRail": { "rect": ["10mm", "120mm"] },
+    "stringer": { "rect": ["60mm", "240mm"] }
+  },
+  "glass": {
+    "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "gap": "15mm", "alpha": 0.5, "reflection": 0.5, "align": "middle-center" },
+    "ceramic": { "width": "300mm", "length": "300mm", "thickness": "12mm", "gap": "4mm", "alpha": 1, "reflection": 0.15, "align": "middle-center",
+                 "color": [0.86, 0.78, 0.66], "bevel": { "width": "6mm", "depth": "1.5mm" } }
+  },
+  "surfaces": {
+    "towerWall": {
+      "ribStep": "1750mm",
+      "tile": { "preset": "clear", "align": "top-center" },
+      "profiles": { "mainRib": "rib", "cutRib": "cutRib", "horizontalFrame": "frame", "verticalFrame": "mullion" }
+    },
+    "towerDome": { "extends": "towerWall", "tile": { "align": "middle-center" } },
+    "groundWall": {
+      "extends": "towerWall",
+      "ribStep": "2800mm",
+      "padding": { "left": "50mm", "right": "50mm" },
+      "profiles": { "cutRib": "rib" }
+    },
+    "groundRoof": { "extends": "groundWall", "tile": { "align": "bottom-center" }, "profiles": { "cutRib": "cutRib" } },
+    "deck": {
+      "ribStep": "900mm",
+      "ribsOnGrid": true,
+      "tile": { "preset": "ceramic" },
+      "profiles": { "mainRib": "deckRib", "horizontalFrame": "deckFrame", "verticalFrame": "deckFrame" }
+    }
+  },
+  "handrails": {
+    "walk": {
+      "height": "1100mm", "middleHeight": "600mm", "kickHeight": "150mm", "postStep": "1500mm", "railBeamDrop": "100mm",
+      "profiles": { "post": "post", "topRail": "topRail", "middleRail": "middleRail", "kickRail": "kickRail", "railBeam": "beam" }
+    }
+  },
+  "stairs": {
+    "tower": {
+      "width": "1200mm", "riser": "200mm", "tread": "220mm", "treadThickness": "40mm",
+      "platform": { "width": "1200mm", "length": "1600mm" },
+      "profiles": { "stringer": "stringer", "post": "arch" },
+      "handrail": "walk"
+    }
+  },
+  "levels": {
+    "groundEaves": "6m",
+    "towerTop": "11m",
+    "walk": "3.6m",
+    "eavesBeams": "5770mm",
+    "floorBeams": "3380mm"
+  },
+  "plan": {
+    "tower1": { "regular": 8, "apothem": "4.2m" },
+    "tower2": { "beside": "tower1", "direction": 0 },
+    "tower0": { "beside": "tower1", "direction": 180 },
+    "towers": { "union": ["tower0", "tower1", "tower2"] },
+    "ground": { "hull": ["tower0", "tower1", "tower2"], "margin": "3m" }
+  },
+  "build": [
+    { "op": "columns", "name": "wallColumns", "at": { "plan": "ground", "opposite": "towers", "inset": "96mm" }, "profile": "arch", "top": "groundEaves" },
+    { "op": "roof", "name": "groundRoof", "plan": "ground", "type": "groundRoof", "eaves": "groundEaves", "slope": 40,
+      "openings": ["tower0", "tower1", "tower2"], "bays": { "columns": "wallColumns" } },
+    { "op": "walls", "name": "groundWall", "plan": "ground", "type": "groundWall", "top": "groundEaves", "bays": { "columns": "wallColumns" } },
+    { "op": "walls", "name": "tower0Wall", "plan": "tower0", "type": "towerWall", "foot": { "on": "groundRoof", "offset": "-100mm" }, "top": "towerTop" },
+    { "op": "walls", "name": "tower1Wall", "plan": "tower1", "type": "towerWall", "foot": { "on": "groundRoof", "offset": "-100mm" }, "top": "towerTop" },
+    { "op": "walls", "name": "tower2Wall", "plan": "tower2", "type": "towerWall", "foot": { "on": "groundRoof", "offset": "-100mm" }, "top": "towerTop" },
+    { "op": "dome", "name": "tower0Dome", "plan": "tower0", "type": "towerDome", "base": "towerTop", "rise": "5.6m" },
+    { "op": "dome", "name": "tower1Dome", "plan": "tower1", "type": "towerDome", "base": "towerTop", "rise": "5.6m" },
+    { "op": "dome", "name": "tower2Dome", "plan": "tower2", "type": "towerDome", "base": "towerTop", "rise": "5.6m" },
+    { "op": "columns", "name": "towerColumns", "at": { "plan": "towers" }, "profile": "column", "top": { "on": "groundRoof", "offset": "-60mm" } },
+    { "op": "arches", "name": "footArches", "between": "towerColumns", "profile": "arch", "under": { "columns": "-80mm" } },
+    { "op": "beams", "name": "roofBeams", "between": "wallColumns", "to": "towerColumns", "profile": "beam", "level": { "on": "groundRoof", "offset": "-120mm" } },
+    { "op": "arches", "name": "roofArches", "between": "wallColumns", "to": "towerColumns", "profile": "arch", "under": { "on": "groundRoof", "offset": "-240mm" } },
+    { "op": "beams", "name": "eavesBeams", "between": "wallColumns", "profile": "beam", "level": "eavesBeams", "inward": "100mm" },
+    { "op": "arches", "name": "groundArches", "between": "wallColumns", "profile": "arch", "under": "5650mm", "inward": "100mm" }
+  ]
+}

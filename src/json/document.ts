@@ -115,6 +115,10 @@ export const StairTypeSpec = z.object({
  *   rect     width along X and depth along Y around `center`
  *   offset   another outline moved out by `by` (in when negative), sides staying parallel
  *   hull     the convex hull around other outlines, then moved out by `margin`
+ *   union    the outline around other outlines that touch or overlap, walked around the
+ *            outside; a corner where two only touch is passed twice
+ *   beside   a copy of another outline moved in `direction` (degrees from +X) until it just
+ *            touches the original, plus `gap`
  */
 export const PlanSpec = z.union([
   z.object({
@@ -125,6 +129,8 @@ export const PlanSpec = z.union([
   z.object({ rect: z.tuple([Length, Length]), center: P2Spec.optional() }).strict(),
   z.object({ offset: z.string(), by: Length }).strict(),
   z.object({ hull: z.array(z.string()).min(1), margin: Length.optional() }).strict(),
+  z.object({ union: z.array(z.string()).min(1) }).strict(),
+  z.object({ beside: z.string(), direction: Num, gap: Length.optional() }).strict(),
 ]);
 export type PlanSpecType = z.infer<typeof PlanSpec>;
 

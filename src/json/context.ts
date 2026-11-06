@@ -9,7 +9,7 @@ import { type Instance, assemble } from "../fem/placement";
 import { removeDuplicateMembers } from "../fem/dedupe";
 import { type Vec3, add, scale } from "../fem/vec";
 import {
-  type P2, type Side, at, centroid, convexHull, counterClockwise, offsetPolygon, radiusOfApothem, regularPolygon, sidesOf,
+  type P2, type Side, at, centroid, convexHull, counterClockwise, offsetPolygon, radiusOfApothem, regularPolygon, sidesOf, unionOutline,
 } from "../fem/plan";
 import type { CutPlane, GlassSurfaceParams, GlassSurface } from "../generators/glassSurface";
 import type { HandrailParams } from "../generators/handrail";
@@ -238,6 +238,15 @@ export class BuildContext {
       polygon = [[cx - w, cy - d], [cx + w, cy - d], [cx + w, cy + d], [cx - w, cy + d]];
     } else if ("offset" in spec) {
       polygon = offsetPolygon(this.plan(spec.offset, `${path}.offset`).polygon, this.length(spec.by, `${path}.by`));
+    } else if ("union" in spec) {
+      polygon = unionOutline(spec.union.map((n) => this.plan(n, `${path}.union`).polygon));
+    } else if ("beside" in spec) {
+      const original = this.plan(spec.beside, `${path}.beside`).polygon;
+      const angle = (spec.direction * Math.PI) / 180;
+      const dir: P2 = [Math.cos(angle), Math.sin(angle)];
+      const reach = original.map(([x, y]) => x * dir[0] + y * dir[1]);
+      const move = Math.max(...reach) - Math.min(...reach) + (this.optionalLength(spec.gap, `${path}.gap`) ?? 0);
+      polygon = original.map(([x, y]) => [x + dir[0] * move, y + dir[1] * move]);
     } else {
       const hull = convexHull(spec.hull.flatMap((n) => this.plan(n, `${path}.hull`).polygon));
       polygon = spec.margin === undefined ? hull : offsetPolygon(hull, this.length(spec.margin, `${path}.margin`));
