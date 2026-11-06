@@ -36,10 +36,16 @@
   "levels": {
     "floor": "1.2m",
     "wallFoot": "1.5m",
+    "wallArchCrown": "5.93m",
+    "wallBeam": "6.1m",
+    "eavesCornice": "6.22m",
     "eaves": "6.4m",
+    "naveArchCrown": "7.71m",
+    "naveBeam": "7.88m",
     "aisleRoof": "8m",
     "naveSpring": "10.61m",
     "naveCrown": "14.61m",
+    "drumCornice": "17.82m",
     "drumTop": "18m",
     "domeApex": "22.6m",
     "lanternTop": "24m"
@@ -73,6 +79,32 @@
       "openings": [{ "arch": { "side": ["crossing", 3], "spring": "naveSpring", "radius": "4m" } }] },
 
     { "op": "dome", "name": "domes", "plan": "crossing", "type": "dome", "base": "drumTop", "rise": "4.6m", "opening": "1.6m", "ribStations": [] },
-    { "op": "pyramid", "name": "lantern", "plan": "lanternBase", "base": { "on": "domes" }, "apex": "lanternTop", "thickness": 1, "color": [0.55, 0.58, 0.6] }
+    { "op": "pyramid", "name": "lantern", "plan": "lanternBase", "base": { "on": "domes" }, "apex": "lanternTop", "thickness": 1, "color": [0.55, 0.58, 0.6] },
+
+    { "op": "columns", "name": "wallColumns", "at": { "plan": "wallLine", "bays": "bays" }, "profile": "wallShaft", "foot": "floor", "top": "eaves",
+      "base": { "profile": "wallBase", "height": "108mm" }, "capital": { "profile": "wallCapital", "height": "126mm" }, "orient": true },
+    { "op": "arches", "name": "wallArcade", "between": "wallColumns", "profile": "arch", "crown": "wallArchCrown" },
+    { "op": "beams", "name": "wallArcadeBeams", "between": "wallColumns", "profile": "beam", "level": "wallBeam" },
+    { "op": "columns", "name": "naveColumns", "at": { "plan": "naveLine", "bays": "bays" }, "profile": "naveShaft", "foot": "floor", "top": "naveSpring",
+      "tops": [{ "sides": [14], "top": "aisleRoof" }, { "corners": [4, 9, 14, 15], "top": "drumTop" }],
+      "base": { "profile": "naveBase", "height": "144mm" }, "capital": { "profile": "naveCapital", "height": "168mm" }, "orient": true },
+    { "op": "arches", "name": "naveArcade", "between": "naveColumns", "profile": "arch", "crown": "naveArchCrown" },
+    { "op": "beams", "name": "naveArcadeBeams", "between": "naveColumns", "profile": "beam", "level": "naveBeam" },
+
+    { "op": "band", "name": "plinth", "plan": "outer", "thickness": "500mm", "z": [0, "floor"], "color": [0.66, 0.36, 0.27] },
+    { "op": "band", "name": "frieze", "plan": "outer", "thickness": "340mm", "z": ["floor", "wallFoot"], "color": [0.2, 0.42, 0.52] },
+    { "op": "band", "name": "eavesCornice", "plan": "outer", "thickness": "300mm", "z": ["eavesCornice", "eaves"], "color": [0.2, 0.42, 0.52] },
+    { "op": "band", "name": "drumCornice", "plan": "crossing", "thickness": "300mm", "z": ["drumCornice", "drumTop"], "color": [0.2, 0.42, 0.52] },
+
+    { "op": "outline", "name": "armsFloor", "points": [{ "corner": ["outer", 13] }, { "corner": ["outer", 0] }, { "corner": ["outer", 3] }, { "corner": ["outer", 10] }] },
+    { "op": "outline", "name": "rearFloor", "points": [{ "corner": ["outer", 4] }, { "corner": ["outer", 5] }, { "corner": ["outer", 8] }, { "corner": ["outer", 9] }] },
+    { "op": "outline", "name": "rightApse", "points": [{ "corner": ["outer", 0] }, { "corner": ["outer", 1] }, { "corner": ["outer", 2] }, { "corner": ["outer", 3] }] },
+    { "op": "outline", "name": "rearApse", "points": [{ "corner": ["outer", 5] }, { "corner": ["outer", 6] }, { "corner": ["outer", 7] }, { "corner": ["outer", 8] }] },
+    { "op": "outline", "name": "leftApse", "points": [{ "corner": ["outer", 10] }, { "corner": ["outer", 11] }, { "corner": ["outer", 12] }, { "corner": ["outer", 13] }] },
+    { "op": "slab", "name": "floorArms", "plan": "armsFloor", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] },
+    { "op": "slab", "name": "floorRear", "plan": "rearFloor", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] },
+    { "op": "slab", "name": "floorRightApse", "plan": "rightApse", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] },
+    { "op": "slab", "name": "floorRearApse", "plan": "rearApse", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] },
+    { "op": "slab", "name": "floorLeftApse", "plan": "leftApse", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] }
   ]
 }
