@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Element, PlateElement } from "../../fem/types";
 import { rectangleProfile } from "../../fem/profiles";
 import { type Vec3, add, sub, scale, dot, cross, normalize, len, WORLD_Z } from "../../fem/vec";
-import { at } from "../../fem/plan";
+import { type Side, at } from "../../fem/plan";
 import { type BuildContext, BuildError, type PlacedColumn } from "../context";
 import { Color, CutSpec, Length, Num, PointSpec, ProfileRef, Vec3Spec } from "../document";
 import { defineOperator } from "../operator";
@@ -23,12 +23,21 @@ const halfDepth = (outline: readonly (readonly [number, number])[]) => Math.max(
  *   { plan, corners?, inset? }            at the corners of an outline, moved in along the bisectors
  *   { plan, sides?, spacing | bays, inset?, includeCorners? }
  *                                         along the sides, every ~spacing (or `bays` per side), corners included
+ *   { plan, sides?, opposite, inset?, includeCorners? }
+ *                                         along the sides, opposite the columns of another result (or the
+ *                                         convex corners of another outline): each of those projects onto its
+ *                                         nearest side, except the one nearest to each corner, which the
+ *                                         corner column stands for
  *   { points: [...] }                     at explicit points
  */
 const Stations = z.union([
   z.object({ plan: z.string(), corners: z.array(Num.int()).optional(), inset: Length.optional() }).strict(),
   z.object({
     plan: z.string(), sides: z.array(Num.int()).optional(), spacing: Length.optional(), bays: Num.int().min(1).optional(),
+    inset: Length.optional(), includeCorners: z.boolean().optional(),
+  }).strict(),
+  z.object({
+    plan: z.string(), sides: z.array(Num.int()).optional(), opposite: z.string(),
     inset: Length.optional(), includeCorners: z.boolean().optional(),
   }).strict(),
   z.object({ points: z.array(PointSpec).min(1) }).strict(),
@@ -52,19 +61,41 @@ function stations(ctx: BuildContext, spec: z.infer<typeof Stations>, path: strin
     const half = Math.acos(Math.max(-1, Math.min(1, dot(before.inward, s.inward)))) / 2;
     return { at: add(s.a, scale(inward, inset / Math.cos(half))), inward };
   };
-  if (!("spacing" in spec) && !("bays" in spec) && !("includeCorners" in spec)) {
+  if (!("spacing" in spec) && !("bays" in spec) && !("opposite" in spec) && !("includeCorners" in spec)) {
     const which = (spec as { corners?: number[] }).corners ?? plan.sides.map((_, k) => k);
     return which.map((k) => corner(((k % n) + n) % n));
   }
-  if (!("spacing" in spec) && !("bays" in spec)) throw new BuildError("give spacing or bays", path);
-  const spacing = ctx.optionalLength(spec.spacing, `${path}.spacing`);
+  /** Distances along each side at which a column stands, between its corners. */
+  let marks: (s: Side, k: number) => number[];
+  if ("opposite" in spec) {
+    // The columns of a result, or the convex corners of an outline (re-entrant ones face away from the sides).
+    const convexCorners = (sides: readonly Side[]) =>
+      sides.filter((s, k) => cross(sides[(k + sides.length - 1) % sides.length].along, s.along)[2] > 1e-9).map((s) => s.a);
+    const others: Vec3[] = ctx.results.get(spec.opposite)?.kind === "columns"
+      ? ctx.get(spec.opposite, "columns", `${path}.opposite`).columns.map((c) => c.at)
+      : convexCorners(ctx.plan(spec.opposite, `${path}.opposite`).sides);
+    const distance = (a: Vec3, b: Vec3) => len(sub(a, b));
+    const nearestTo = (q: Vec3) => others.reduce((best, c) => (distance(c, q) < distance(best, q) ? c : best));
+    const atCorners = plan.sides.map((s) => nearestTo(s.a));
+    const landings = plan.sides.map((): number[] => []);
+    for (const c of others.filter((c) => !atCorners.includes(c))) {
+      const away = plan.sides.map((s) => dot(sub(c, s.a), s.inward));
+      const k = away.indexOf(Math.min(...away));
+      landings[k].push(dot(sub(c, plan.sides[k].a), plan.sides[k].along));
+    }
+    marks = (_s, k) => landings[k].sort((a, b) => a - b);
+  } else {
+    if (!("spacing" in spec) && !("bays" in spec)) throw new BuildError("give spacing or bays", path);
+    const spacing = ctx.optionalLength(spec.spacing, `${path}.spacing`);
+    marks = (s) => {
+      const bays = spec.bays ?? (spacing ? Math.max(1, Math.round(s.length / spacing)) : 1);
+      return Array.from({ length: bays - 1 }, (_, i) => (s.length * (i + 1)) / bays);
+    };
+  }
   const out: Station[] = [];
   for (const { side: s, k } of selectedSides(plan.sides, spec.sides)) {
-    const bays = spec.bays ?? (spacing ? Math.max(1, Math.round(s.length / spacing)) : 1);
     if (spec.includeCorners !== false) out.push(corner(k));
-    for (let i = 1; i < bays; i++) {
-      out.push({ at: add(add(s.a, scale(s.along, (s.length * i) / bays)), scale(s.inward, inset)), inward: s.inward });
-    }
+    for (const u of marks(s, k)) out.push({ at: add(add(s.a, scale(s.along, u)), scale(s.inward, inset)), inward: s.inward });
     if (spec.includeCorners !== false && spec.sides && !spec.sides.includes((k + 1) % n)) out.push(corner((k + 1) % n));
   }
   return out;
@@ -103,25 +134,44 @@ export const columns = defineOperator({
   },
 });
 
-/** Pairs of consecutive columns of a result, around in a ring when `closed`. */
-function spans(ctx: BuildContext, name: string, closed: boolean | undefined, path: string): [PlacedColumn, PlacedColumn][] {
+/**
+ * Pairs of consecutive columns of a result, around in a ring when `closed`; or, with `to`, each
+ * column of the result paired with the nearest column of that other result.
+ */
+function spans(ctx: BuildContext, name: string, closed: boolean | undefined, path: string, to?: string): [PlacedColumn, PlacedColumn][] {
   const all = ctx.get(name, "columns", path).columns;
+  if (to !== undefined) {
+    const others = ctx.get(to, "columns", `${path} to`).columns;
+    const distance = (a: PlacedColumn, b: PlacedColumn) => len(sub(a.at, b.at));
+    return all.map((c) => [c, others.reduce((best, o) => (distance(o, c) < distance(best, c) ? o : best))]);
+  }
   if (all.length < 2) throw new BuildError(`"${name}" has fewer than two columns`, path);
   const pairs = all.slice(1).map((c, i): [PlacedColumn, PlacedColumn] => [all[i], c]);
   if (closed !== false && all.length > 2) pairs.push([all[all.length - 1], all[0]]);
   return pairs;
 }
 
+/** Points along an arch where it is tested against what it stays under. */
+const ARCH_SAMPLES = 64;
+
 export const arches = defineOperator({
   name: "arches",
-  description: "Arches between each two consecutive columns of a columns result (around in a ring unless open): semicircular, or segmental with a rise, springing at a level.",
+  description: "Arches between each two consecutive columns of a columns result (around in a ring unless open), or from each column to the nearest of another result: semicircular, or segmental with a rise, springing at a level or raised until they just touch what they stand `under`.",
   schema: z.object({
     op: z.literal("arches"),
     name: z.string(),
     between: z.string(),
+    /** Pair each column of `between` with the nearest column of this result instead of the next one. */
+    to: z.string().optional(),
     profile: ProfileRef,
-    /** Springing level; "top" springs from each column's top less the arch's own height. */
-    spring: Length,
+    /** Springing level. */
+    spring: Length.optional(),
+    /**
+     * Instead of `spring`: the arch is raised until its back just touches this, anywhere along
+     * it: a level, a roof with an offset, or `{ "columns": offset }`, the line between the two
+     * column tops moved by `offset`.
+     */
+    under: z.union([Height, z.object({ columns: Length }).strict()]).optional(),
     /** Rise of a segmental arch (default: a semicircle). */
     rise: Length.optional(),
     /** The ring of columns is open: no arch from the last back to the first. */
@@ -133,20 +183,38 @@ export const arches = defineOperator({
   }).strict(),
   run(ctx, p, path) {
     const profile = ctx.profile(p.profile, `${path}.profile`);
-    const spring = ctx.length(p.spring, `${path}.spring`);
+    if ((p.spring === undefined) === (p.under === undefined)) throw new BuildError("give spring or under", path);
+    const spring = ctx.optionalLength(p.spring, `${path}.spring`);
     const rise = ctx.optionalLength(p.rise, `${path}.rise`);
     const inward = ctx.optionalLength(p.inward, `${path}.inward`) ?? 0;
     const segment = ctx.optionalLength(p.segment, `${path}.segment`) ?? ARC_SEGMENT;
     const color = p.color ?? ctx.color;
-    const ids = spans(ctx, p.between, !p.open, `${path}.between`).map(([a, b], i) => {
+    const back = halfDepth(profile.outline);
+    const underColumns = p.under !== undefined && typeof p.under === "object" && "columns" in p.under
+      ? ctx.length(p.under.columns, `${path}.under.columns`) : undefined;
+    const underAt = p.under === undefined || underColumns !== undefined
+      ? undefined : ctx.height(p.under as Parameters<typeof ctx.height>[0], `${path}.under`);
+    const ids = spans(ctx, p.between, !p.open, `${path}.between`, p.to).map(([a, b], i) => {
       const move = (c: PlacedColumn) => (c.inward ? add(c.at, scale(c.inward, inward)) : c.at);
-      const start = lifted(move(a), spring);
-      const end = lifted(move(b), spring);
-      const chord = sub(end, start);
+      const [from, to] = [move(a), move(b)];
+      const chord = sub(to, from);
+      const half = len(chord) / 2;
+      const r = rise ?? half;
+      // Circle of the arch over its chord: radius and the centre's depth below the springing.
+      const radius = (half * half + r * r) / (2 * r);
+      const below = radius - r;
+      const level = spring ?? Math.min(...Array.from({ length: ARCH_SAMPLES + 1 }, (_, j) => {
+        const x = (2 * half * j) / ARCH_SAMPLES;
+        const q = add(from, scale(chord, j / ARCH_SAMPLES));
+        const arc = Math.sqrt(Math.max(0, radius * radius - (x - half) ** 2)) - below;
+        const limit = underAt ? underAt(q) : a.top + ((b.top - a.top) * j) / ARCH_SAMPLES + underColumns!;
+        return limit - back - arc;
+      }));
+      const start = lifted(from, level);
+      const end = lifted(to, level);
       let startTangent: Vec3 = WORLD_Z;
       if (rise !== undefined) {
         // Segmental: the tangent at the springing makes the arc through the crown at `rise`.
-        const half = len(chord) / 2;
         const phi = 2 * Math.atan2(rise, half);
         const along = normalize(chord);
         startTangent = add(scale(along, Math.cos(phi)), scale(WORLD_Z, Math.sin(phi)));
@@ -162,11 +230,13 @@ export const arches = defineOperator({
 
 export const beams = defineOperator({
   name: "beams",
-  description: "Beams between each two consecutive columns of a columns result (around in a ring unless open) at a level, or following a roof as a polyline just under its surface.",
+  description: "Beams between each two consecutive columns of a columns result (around in a ring unless open), or from each column to the nearest of another result, at a level or following a roof as a polyline just under its surface.",
   schema: z.object({
     op: z.literal("beams"),
     name: z.string(),
     between: z.string(),
+    /** Pair each column of `between` with the nearest column of this result instead of the next one. */
+    to: z.string().optional(),
     profile: ProfileRef,
     /** Axis level, or a roof to follow with an offset (negative: below it). */
     level: Height,
@@ -183,7 +253,7 @@ export const beams = defineOperator({
     const inward = ctx.optionalLength(p.inward, `${path}.inward`) ?? 0;
     const segment = ctx.optionalLength(p.segment, `${path}.segment`) ?? 25;
     const color = p.color ?? ctx.color;
-    const ids = spans(ctx, p.between, !p.open, `${path}.between`).map(([a, b], i) => {
+    const ids = spans(ctx, p.between, !p.open, `${path}.between`, p.to).map(([a, b], i) => {
       const move = (c: PlacedColumn) => (c.inward ? add(c.at, scale(c.inward, inward)) : c.at);
       const [from, to] = [move(a), move(b)];
       const id = `${p.name}_${i}`;
@@ -367,6 +437,9 @@ export const outline = defineOperator({
     /** Cuts applied to the `plan` outline: the part kept is where all normals point. */
     plan: z.string().optional(),
     cuts: z.array(CutSpec).optional(),
+    /** Every corner moved `share` of the way (default half) towards the nearest column of this result. */
+    towards: z.string().optional(),
+    share: Num.optional(),
   }).strict(),
   run(ctx, p, path) {
     let polygon: Vec3[];
@@ -374,6 +447,14 @@ export const outline = defineOperator({
     else if (p.points) polygon = p.points.map((q, i) => ctx.point(q, `${path}.points[${i}]`));
     else if (p.plan) polygon = ctx.plan(p.plan, `${path}.plan`).polygon.map((q) => at(q));
     else throw new BuildError("give columns, points or plan", path);
+    if (p.towards) {
+      const others = ctx.get(p.towards, "columns", `${path}.towards`).columns;
+      const share = p.share ?? 0.5;
+      polygon = polygon.map((q) => {
+        const near = others.reduce((best, c) => (len(sub(c.at, q)) < len(sub(best.at, q)) ? c : best)).at;
+        return add(q, scale(sub([near[0], near[1], q[2]], q), share));
+      });
+    }
     for (const c of ctx.cuts(p.cuts, `${path}.cuts`)) polygon = clip(polygon, c.point, c.normal);
     if (polygon.length < 3) throw new BuildError("nothing is left of the outline", path);
     ctx.addPlan(p.name, polygon.map((q) => [q[0], q[1]]), path);
