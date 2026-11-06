@@ -7,15 +7,17 @@ import type { Element, Model } from "../fem/types";
 import { type Profile, circleProfile, rectangleProfile, squareProfile } from "../fem/profiles";
 import { type Instance, assemble } from "../fem/placement";
 import { removeDuplicateMembers } from "../fem/dedupe";
-import { type Vec3, add, scale } from "../fem/vec";
+import { type Vec3, add, sub, scale, dot } from "../fem/vec";
 import {
-  type P2, type Side, at, centroid, convexHull, counterClockwise, offsetPolygon, radiusOfApothem, regularPolygon, sidesOf, unionOutline,
+  type P2, type Side, at, centroid, convexHull, counterClockwise, crossPolygon, ellipsePolygon, offsetPolygon, radiusOfApothem,
+  regularPolygon, sidesOf, unionOutline,
 } from "../fem/plan";
 import type { CutPlane, GlassSurfaceParams, GlassSurface } from "../generators/glassSurface";
 import type { HandrailParams } from "../generators/handrail";
 import type { StairParams } from "../generators/stair";
 import type {
-  CutSpecType, LengthSpec, PlanSpecType, PointSpecType, ProfileRefSpec, StructureDocumentType, SurfaceTypeSpecType, TileSpecType,
+  CutSpecType, LengthSpec, OpeningSpecType, PlanSpecType, PointSpecType, ProfileRefSpec, StructureDocumentType, SurfaceTypeSpecType,
+  TileSpecType,
 } from "./document";
 
 export class BuildError extends Error {
@@ -56,13 +58,24 @@ export interface HeightField {
   heightAt(q: Vec3): number;
 }
 
+/** The bays of one side of an outline: lines across it at `shares` of its length, carried to matching sides. */
+export interface BaySide {
+  readonly a: Vec3;
+  readonly along: Vec3;
+  readonly length: number;
+  readonly shares: readonly number[];
+  /** Kept as equal shares of every matching side instead of fixed lines across. */
+  readonly even: boolean;
+}
+
 /** Named results an operation can leave for the ones after it. */
 export type BuildResult =
   | { readonly kind: "surfaces"; readonly blocks: readonly GlassSurface[] }
   | { readonly kind: "columns"; readonly columns: readonly PlacedColumn[] }
   | { readonly kind: "members"; readonly ids: readonly string[] }
   | { readonly kind: "height"; readonly field: HeightField; readonly blocks?: readonly GlassSurface[] }
-  | { readonly kind: "points"; readonly points: readonly Vec3[] };
+  | { readonly kind: "points"; readonly points: readonly Vec3[] }
+  | { readonly kind: "bays"; readonly margin: number; readonly sides: readonly BaySide[] };
 
 export class BuildContext {
   readonly elements: Element[] = [];
@@ -236,6 +249,20 @@ export class BuildContext {
       const [w, d] = [this.length(spec.rect[0], `${path}.rect[0]`) / 2, this.length(spec.rect[1], `${path}.rect[1]`) / 2];
       const [cx, cy] = spec.center ? this.p2(spec.center, `${path}.center`) : [0, 0];
       polygon = [[cx - w, cy - d], [cx + w, cy - d], [cx + w, cy + d], [cx - w, cy + d]];
+    } else if ("cross" in spec) {
+      const half = this.length(spec.width, `${path}.width`) / 2;
+      const arm = (key: keyof typeof spec.cross) => this.optionalLength(spec.cross[key], `${path}.cross.${key}`);
+      const arms = { right: arm("right"), rear: arm("rear"), left: arm("left"), front: arm("front") };
+      if (Object.values(arms).every((v) => v === undefined)) throw new BuildError("a cross needs at least one arm", path);
+      const crossing = this.optionalLength(spec.crossing, `${path}.crossing`);
+      polygon = crossPolygon(
+        spec.center ? this.p2(spec.center, `${path}.center`) : [0, 0], half, arms, spec.apseSides ?? 0, crossing === undefined ? half : crossing / 2,
+      );
+    } else if ("ellipse" in spec) {
+      polygon = ellipsePolygon(
+        spec.sides ?? 48, this.length(spec.ellipse[0], `${path}.ellipse[0]`) / 2, this.length(spec.ellipse[1], `${path}.ellipse[1]`) / 2,
+        spec.center ? this.p2(spec.center, `${path}.center`) : [0, 0],
+      );
     } else if ("offset" in spec) {
       polygon = offsetPolygon(this.plan(spec.offset, `${path}.offset`).polygon, this.length(spec.by, `${path}.by`));
     } else if ("union" in spec) {
@@ -312,11 +339,24 @@ export class BuildContext {
     return (specs ?? []).flatMap((c, i) => this.planes(c, `${path}[${i}]`));
   }
 
-  /** Openings: each a convex hole given by a plan name or a list of planes with normals pointing in. */
-  openings(specs: readonly (string | readonly CutSpecType[])[] | undefined, path: string): CutPlane[][] {
-    return (specs ?? []).map((o, i) =>
-      typeof o === "string" ? this.planes({ plan: o }, `${path}[${i}]`) : this.cuts(o, `${path}[${i}]`),
-    );
+  /** Openings: each a convex hole given by a plan name, a list of planes with normals pointing in, or an arch on a side. */
+  openings(specs: readonly OpeningSpecType[] | undefined, path: string): CutPlane[][] {
+    return (specs ?? []).map((o, i) => {
+      const p = `${path}[${i}]`;
+      if (typeof o === "string") return this.planes({ plan: o }, p);
+      if (Array.isArray(o)) return this.cuts(o, p);
+      const s = this.sideOf(o.arch.side[0], o.arch.side[1], `${p}.arch.side`);
+      const along = this.optionalLength(o.arch.at, `${p}.arch.at`) ?? s.length / 2;
+      const spring = this.length(o.arch.spring, `${p}.arch.spring`);
+      const radius = this.length(o.arch.radius, `${p}.arch.radius`);
+      const facets = o.arch.facets ?? 16;
+      const centre: Vec3 = [s.a[0] + s.along[0] * along, s.a[1] + s.along[1] * along, spring];
+      return Array.from({ length: facets }, (_, j): CutPlane => {
+        const angle = (Math.PI * (j + 0.5)) / facets;
+        const radial = add(scale(s.along, Math.cos(angle) * radius), [0, 0, Math.sin(angle) * radius]);
+        return { point: add(centre, radial), normal: scale(radial, -1) };
+      });
+    });
   }
 
   // ---- results ---------------------------------------------------------------------------------
@@ -342,6 +382,25 @@ export class BuildContext {
     const field = this.get(spec.on, "height", `${path}.on`).field;
     const offset = this.optionalLength(spec.offset, `${path}.offset`) ?? 0;
     return (q) => field.heightAt(q) + offset;
+  }
+
+  /**
+   * Bay lines of a bays result on side k of a plan with the same sides in the same order (the
+   * outline the bays were set on, or one moved in or out of it), as distances from the side's
+   * start: carried across as lines, or kept as equal shares of the side.
+   */
+  bayStations(result: string, plan: Plan, k: number, path: string): number[] {
+    const bays = this.get(result, "bays", path);
+    if (bays.sides.length !== plan.sides.length) {
+      throw new BuildError(`"${result}" has ${bays.sides.length} sides, plan "${plan.name}" ${plan.sides.length}`, path);
+    }
+    const s = plan.sides[k];
+    const r = bays.sides[k];
+    if (r.even) return r.shares.map((t) => t * s.length);
+    if (Math.abs(dot(r.along, s.along)) < 1 - 1e-6) throw new BuildError(`side ${k} of "${plan.name}" is not parallel to side ${k} of "${result}"`, path);
+    const shift = dot(sub(r.a, s.a), s.along);
+    const sign = dot(r.along, s.along) > 0 ? 1 : -1;
+    return r.shares.map((t) => shift + sign * t * r.length).filter((u) => u > bays.margin && u < s.length - bays.margin);
   }
 
   column(result: string, index: number, path: string): PlacedColumn {

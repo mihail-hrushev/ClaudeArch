@@ -27,7 +27,9 @@ the layout engine, the surface types are the stylesheet.
 - **Cut** (a plane keeping the side its normal points to): `{ "point": …, "normal": [x, y, z] }`,
   `{ "plan": "name", "side": i, "end": 0|1 }` (the bisector at one end of side i),
   `{ "plan": "name", "side": i }` (the plane of side i, keeping the inside), or `{ "plan": "name" }`
-  (all sides). In `openings`, a plan name alone means a hole of that outline.
+  (all sides). In `openings`, a plan name alone means a hole of that outline, and
+  `{ "arch": { "side": ["plan", i], "at": …, "spring": …, "radius": …, "facets": 16 } }` a round-headed
+  opening standing on side i (the end of a barrel vault running into a wall).
 - **Height**: a length, or `{ "on": "roofResult", "offset": … }` to follow a roof.
 - **Color**: `[r, g, b]` in 0 … 1.
 
@@ -57,7 +59,12 @@ the layout engine, the surface types are the stylesheet.
     "annex": { "beside": "tower", "direction": 0 },   // a copy moved along a direction (degrees) until it touches
     "core":  { "union": ["tower", "annex"] },         // outline around outlines that touch or overlap
     "box":   { "rect": ["20m", "8m"], "center": [0, "4m"] },
-    "any":   { "polygon": [[0, 0], ["10m", 0], ["10m", "6m"]] }
+    "any":   { "polygon": [[0, 0], ["10m", 0], ["10m", "6m"]] },
+    "cross": { "cross": { "right": "20m", "rear": "14m", "left": "20m" }, "width": "14m", "apseSides": 3, "crossing": "8m" },
+                                                      // arms along ±X / ±Y to the centre of their apse, each ending in
+                                                      // `apseSides` flat facets (0: square); a missing arm closes straight,
+                                                      // divided at the corners of a crossing `crossing` wide
+    "lake":  { "ellipse": ["90m", "40m"], "sides": 48, "center": [0, "-37m"] }
   },
   "build": [ … ]                                      // operations, in order
 }
@@ -75,24 +82,26 @@ result (glass blocks), a `columns` result (`between` of arches and beams, `{ "co
 points), a `height` result (a roof: `{ "on": … }` heights) or a `members` result.
 
 Glazing operators (`surface`, `walls`, `roof`, `dome`, `floor`, `deck`) share these fields: `type` (a
-surface type name or an inline one), and per use `ribStep`, `ribStations`, `evenBays` (default
-true: the rib step is rounded so whole bays divide the width), `ribsOnGrid`, `align`, `padding`,
-`cuts`, `openings`.
+surface type name or an inline one), and per use `ribStep`, `ribStations`, `bays` (the name of a
+`bays` result: ribs on its bay lines), `evenBays` (default true: the rib step is rounded so whole
+bays divide the width), `ribsOnGrid`, `align`, `padding`, `cuts`, `openings`.
 
 | op | what it does | main fields |
 |---|---|---|
 | `surface` | one glass surface placed explicitly | `base`, `alongX`, `alongZ`, `tangent?`, `facing?` |
-| `walls` | upright walls along the sides of a plan | `plan`, `sides?`, `foot?` (height), `top` (height), `overlap?`, `inset?`, `bays?` (`{columns, clear?, within?}`: one surface per bay between the columns standing in the wall line) |
-| `roof` | a face rising from every side; leaves a height field | `plan`, `eaves`, `rise?`, `run?`, `slope?` (degrees at the eaves), `bays?` (as for walls) |
-| `dome` | a faceted dome over a plan | `plan`, `base`, `rise`, `apex?`, `springing?` (90 = vertical, `"flat"`, or degrees) |
+| `walls` | upright walls along the sides of a plan (square at reflex corners) | `plan`, `sides?`, `foot?` (height), `top` (height), `overlap?`, `inset?`, `bays?` (`{columns, clear?, within?}`: one surface per bay between the columns standing in the wall line) |
+| `roof` | a face rising from every side, run on to the valley past a reflex corner; leaves a height field | `plan`, `eaves`, `rise?`, `run?`, `slope?` (degrees at the eaves, or `"level"`: the arc levels off at the top of its run), `valleys?` (false: faces stop square at reflex corners), `bays?` (as for walls) |
+| `dome` | a faceted dome over a plan; leaves a height field | `plan`, `base`, `rise`, `apex?`, `springing?` (90 = vertical, `"flat"`, or degrees), `opening?` (width of the flat opening left at the top) |
 | `floor` | a tiled floor over a plan, structure below | `plan`, `level`, `along?`, `ceiling?` |
 | `deck` | tiled deck bays between two outlines, e.g. a walkway between beam lines: one bay per side of the outer outline, closed along the inner one | `outer`, `inner`, `level` (walking surface) |
-| `columns` | columns at corners, along sides, opposite other columns, or at points; leaves a columns result | `at` (`{plan, corners?, inset?}` / `{plan, sides?, spacing or bays, inset?, includeCorners?}` / `{plan, sides?, opposite, inset?, includeCorners?}`: at the corners and opposite the columns of a result or the convex corners of an outline, each projected onto its nearest side / `{points}`), `profile`, `foot?`, `top` (height), `orient?` |
-| `arches` | arches between consecutive columns (a ring unless `open`), or from each column to the nearest of another result | `between`, `to?`, `profile`, `spring` or `under` (a height, or `{columns: offset}`: the line between the column tops; the arch is raised until its back just touches it), `rise?` (segmental), `inward?` |
+| `bays` | whole bays of about `step` on every side of a plan; leaves a bays result that glazing (`bays`) and columns (`at.bays`) on the same sides of any layer take their stations from | `plan`, `step`, `measure?` (`{plan, sides?}`: count on the matching side of another outline), `even?` (sides kept as equal shares rather than lines carried across), `margin?` |
+| `columns` | columns at corners, along sides, opposite other columns, or at points, with a base and a capital if asked; leaves a columns result | `at` (`{plan, corners?, inset?}` / `{plan, sides?, spacing or bays (a count, or a bays result), inset?, includeCorners?}` / `{plan, sides?, opposite, inset?, includeCorners?}`: at the corners and opposite the columns of a result or the convex corners of an outline, each projected onto its nearest side / `{points}`), `profile`, `foot?`, `top` (height), `tops?` (`[{corners?, sides?, top}]`), `base?` / `capital?` (`{profile, height}`), `orient?`, `up?` |
+| `arches` | arches between consecutive columns (a ring unless `open`), or from each column to the nearest of another result | `between`, `to?`, `profile`, one of `spring`, `crown` (level of the crowns) or `under` (a height, or `{columns: offset}`: the line between the column tops; the arch is raised until its back just touches it), `rise?` (segmental), `inward?` |
 | `beams` | beams between consecutive columns, or to the nearest of another result, at a level or following a roof | `between`, `to?`, `profile`, `level` (height), `open?`, `inward?` |
 | `member` | one straight / arc / polyline member | `profile`, `start`, `end`, `startTangent?` (arc), `nodes?` (polyline), `up?` |
 | `plate` | one flat convex plate | `corners`, `thickness`, `color?`, `alpha?`, `reflection?`, `bevel?` |
 | `slab` | a plate covering a plan outline | `plan`, `level`, `thickness`, `color?` |
+| `pyramid` | solid plates from the sides of a plan up to an apex over its centre: a lantern roof, a spire | `plan`, `base` (height), `apex`, `thickness`, `color?` |
 | `box` | an axis-aligned solid block | `x`, `y`, `z` ranges, `color?` |
 | `band` | a mitred band along the sides of a plan: plinth, frieze, cornice | `plan`, `thickness`, `z`, `inset?`, `color?` |
 | `outline` | a new plan outline from columns, points or a cut outline | `columns?` / `points?` / `plan?` + `cuts?`, `towards?` + `share?` (corners moved a share of the way to the nearest column of a result, e.g. the centre line between two column rings) |

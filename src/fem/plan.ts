@@ -178,3 +178,70 @@ export function unionOutline(polygons: readonly (readonly P2[])[], tol = 1e-6): 
     return Math.abs(cross2(d(p, q), d(q, n))) > tol * Math.hypot(...d(p, n));
   });
 }
+
+/**
+ * Corners of an apse around `center`, heading along the unit vector `axis`: `sides` flat facets of
+ * the regular polygon with 2 (sides + 1) sides whose apothem is `half`, so the facets run tangent
+ * into walls `half` either side of the axis. Counter-clockwise, from −half to +half across the
+ * axis; without facets, the two corners of a flat end.
+ */
+export function apseCorners(center: P2, axis: P2, half: number, sides: number): P2[] {
+  const perp: P2 = [-axis[1], axis[0]];
+  if (sides < 1) return [-half, half].map((v): P2 => [center[0] + perp[0] * v, center[1] + perp[1] * v]);
+  const turn = Math.PI / (sides + 1);
+  const radius = half / Math.cos(turn / 2);
+  return Array.from({ length: sides + 1 }, (_, i): P2 => {
+    const angle = -Math.PI / 2 + turn * (i + 0.5);
+    const [u, v] = [radius * Math.cos(angle), radius * Math.sin(angle)];
+    return [center[0] + axis[0] * u + perp[0] * v, center[1] + axis[1] * u + perp[1] * v];
+  });
+}
+
+/** Arms of a cross by direction, each the distance from the centre to the centre of its apse. */
+export interface CrossArms {
+  readonly right?: number;
+  readonly rear?: number;
+  readonly left?: number;
+  readonly front?: number;
+}
+
+/**
+ * A cross of arms 2·`half` wide along ±X (right, left) and ±Y (rear, front) around `center`, each
+ * ending in an apse of `apseSides` facets (see apseCorners). Where an arm is missing the crossing
+ * closes with a straight side, divided at ±`crossingHalf` so the corners of the crossing stay on
+ * the outline. Counter-clockwise from the right arm.
+ */
+export function crossPolygon(center: P2, half: number, arms: CrossArms, apseSides: number, crossingHalf = half): P2[] {
+  const slots: { axis: P2; length?: number }[] = [
+    { axis: [1, 0], length: arms.right }, { axis: [0, 1], length: arms.rear },
+    { axis: [-1, 0], length: arms.left }, { axis: [0, -1], length: arms.front },
+  ];
+  const corners: P2[] = [];
+  const push = (q: P2) => {
+    const last = corners[corners.length - 1];
+    if (!last || Math.hypot(last[0] - q[0], last[1] - q[1]) > 1e-9) corners.push(q);
+  };
+  slots.forEach(({ axis, length }, i) => {
+    const perp: P2 = [-axis[1], axis[0]];
+    if (length !== undefined) {
+      apseCorners([center[0] + axis[0] * length, center[1] + axis[1] * length], axis, half, apseSides).forEach(push);
+    } else {
+      for (const v of [-crossingHalf, crossingHalf]) push([center[0] + axis[0] * half + perp[0] * v, center[1] + axis[1] * half + perp[1] * v]);
+    }
+    const next = slots[(i + 1) % slots.length];
+    if ((length !== undefined) === (next.length !== undefined)) {
+      push([center[0] + (axis[0] + next.axis[0]) * half, center[1] + (axis[1] + next.axis[1]) * half]);
+    }
+  });
+  const [first, last] = [corners[0], corners[corners.length - 1]];
+  if (corners.length > 1 && Math.hypot(last[0] - first[0], last[1] - first[1]) <= 1e-9) corners.pop();
+  return corners;
+}
+
+/** An ellipse of `sides` corners with half axes `rx` along X and `ry` along Y around `center`, the first corner on +X. */
+export function ellipsePolygon(sides: number, rx: number, ry: number, center: P2 = [0, 0]): P2[] {
+  return Array.from({ length: sides }, (_, i): P2 => {
+    const angle = (2 * Math.PI * i) / sides;
+    return [center[0] + rx * Math.cos(angle), center[1] + ry * Math.sin(angle)];
+  });
+}

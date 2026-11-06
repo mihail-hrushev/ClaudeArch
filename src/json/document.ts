@@ -119,12 +119,23 @@ export const StairTypeSpec = z.object({
  *            outside; a corner where two only touch is passed twice
  *   beside   a copy of another outline moved in `direction` (degrees from +X) until it just
  *            touches the original, plus `gap`
+ *   cross    arms `width` wide along ±X and ±Y (`right`, `rear`, `left`, `front`: distance from the
+ *            centre to the centre of the arm's apse), each ending in an apse of `apseSides` flat
+ *            facets (0: a flat end); where an arm is missing the crossing closes straight, divided
+ *            at the corners of a crossing `crossing` wide (default: the arm width), so the same
+ *            sides in the same order are kept when the outline is moved in or out
+ *   ellipse  width along X and depth along Y around `center`, `sides` corners (default 48)
  */
 export const PlanSpec = z.union([
   z.object({
     regular: Num.int().min(3), radius: Length.optional(), apothem: Length.optional(),
     center: P2Spec.optional(), rotation: Num.optional(),
   }).strict(),
+  z.object({
+    cross: z.object({ right: Length.optional(), rear: Length.optional(), left: Length.optional(), front: Length.optional() }).strict(),
+    width: Length, apseSides: Num.int().min(0).optional(), crossing: Length.optional(), center: P2Spec.optional(),
+  }).strict(),
+  z.object({ ellipse: z.tuple([Length, Length]), sides: Num.int().min(3).optional(), center: P2Spec.optional() }).strict(),
   z.object({ polygon: z.array(P2Spec).min(3) }).strict(),
   z.object({ rect: z.tuple([Length, Length]), center: P2Spec.optional() }).strict(),
   z.object({ offset: z.string(), by: Length }).strict(),
@@ -167,6 +178,23 @@ export const CutSpec = z.union([
   z.object({ plan: z.string(), inset: Length.optional() }).strict(),
 ]);
 export type CutSpecType = z.infer<typeof CutSpec>;
+
+/**
+ * An opening in a glazed surface: a hole of a plan outline (its name), explicit planes with their
+ * normals pointing into the hole, or a round-headed arch standing on side i of a plan at `at`
+ * from its start (default: the middle), springing at `spring`, of `radius`, in `facets` flat
+ * pieces (default 16): the end of a barrel vault running into a wall.
+ */
+export const OpeningSpec = z.union([
+  z.string(),
+  z.array(CutSpec),
+  z.object({
+    arch: z.object({
+      side: z.tuple([z.string(), Num.int()]), at: Length.optional(), spring: Length, radius: Length, facets: Num.int().min(2).optional(),
+    }).strict(),
+  }).strict(),
+]);
+export type OpeningSpecType = z.infer<typeof OpeningSpec>;
 
 export const View = z.object({
   target: Vec3Spec,

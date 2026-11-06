@@ -22,7 +22,8 @@ const halfDepth = (outline: readonly (readonly [number, number])[]) => Math.max(
  * Where columns stand:
  *   { plan, corners?, inset? }            at the corners of an outline, moved in along the bisectors
  *   { plan, sides?, spacing | bays, inset?, includeCorners? }
- *                                         along the sides, every ~spacing (or `bays` per side), corners included
+ *                                         along the sides, every ~spacing (or `bays` per side, or on
+ *                                         the bay lines of a `bays` result), corners included
  *   { plan, sides?, opposite, inset?, includeCorners? }
  *                                         along the sides, opposite the columns of another result (or the
  *                                         convex corners of another outline): each of those projects onto its
@@ -33,7 +34,7 @@ const halfDepth = (outline: readonly (readonly [number, number])[]) => Math.max(
 const Stations = z.union([
   z.object({ plan: z.string(), corners: z.array(Num.int()).optional(), inset: Length.optional() }).strict(),
   z.object({
-    plan: z.string(), sides: z.array(Num.int()).optional(), spacing: Length.optional(), bays: Num.int().min(1).optional(),
+    plan: z.string(), sides: z.array(Num.int()).optional(), spacing: Length.optional(), bays: z.union([Num.int().min(1), z.string()]).optional(),
     inset: Length.optional(), includeCorners: z.boolean().optional(),
   }).strict(),
   z.object({
@@ -46,6 +47,9 @@ const Stations = z.union([
 interface Station {
   readonly at: Vec3;
   readonly inward?: Vec3;
+  /** The corner of the outline it stands at, or the side it stands along. */
+  readonly corner?: number;
+  readonly side?: number;
 }
 
 function stations(ctx: BuildContext, spec: z.infer<typeof Stations>, path: string): Station[] {
@@ -59,7 +63,7 @@ function stations(ctx: BuildContext, spec: z.infer<typeof Stations>, path: strin
     const before = plan.sides[(k + n - 1) % n];
     const inward = normalize(add(before.inward, s.inward));
     const half = Math.acos(Math.max(-1, Math.min(1, dot(before.inward, s.inward)))) / 2;
-    return { at: add(s.a, scale(inward, inset / Math.cos(half))), inward };
+    return { at: add(s.a, scale(inward, inset / Math.cos(half))), inward, corner: k };
   };
   if (!("spacing" in spec) && !("bays" in spec) && !("opposite" in spec) && !("includeCorners" in spec)) {
     const which = (spec as { corners?: number[] }).corners ?? plan.sides.map((_, k) => k);
@@ -87,7 +91,8 @@ function stations(ctx: BuildContext, spec: z.infer<typeof Stations>, path: strin
   } else {
     if (!("spacing" in spec) && !("bays" in spec)) throw new BuildError("give spacing or bays", path);
     const spacing = ctx.optionalLength(spec.spacing, `${path}.spacing`);
-    marks = (s) => {
+    marks = (s, k) => {
+      if (typeof spec.bays === "string") return ctx.bayStations(spec.bays, plan, k, `${path}.bays`);
       const bays = spec.bays ?? (spacing ? Math.max(1, Math.round(s.length / spacing)) : 1);
       return Array.from({ length: bays - 1 }, (_, i) => (s.length * (i + 1)) / bays);
     };
@@ -95,15 +100,18 @@ function stations(ctx: BuildContext, spec: z.infer<typeof Stations>, path: strin
   const out: Station[] = [];
   for (const { side: s, k } of selectedSides(plan.sides, spec.sides)) {
     if (spec.includeCorners !== false) out.push(corner(k));
-    for (const u of marks(s, k)) out.push({ at: add(add(s.a, scale(s.along, u)), scale(s.inward, inset)), inward: s.inward });
+    for (const u of marks(s, k)) out.push({ at: add(add(s.a, scale(s.along, u)), scale(s.inward, inset)), inward: s.inward, side: k });
     if (spec.includeCorners !== false && spec.sides && !spec.sides.includes((k + 1) % n)) out.push(corner((k + 1) % n));
   }
   return out;
 }
 
+/** A base or a capital of a classical column: its profile and height. */
+const ColumnEnd = z.object({ profile: ProfileRef, height: Length }).strict();
+
 export const columns = defineOperator({
   name: "columns",
-  description: "Columns at the corners of a plan outline, along its sides, or at points, from a foot level up to a top level or a roof. Leaves a columns result that arches and beams span between.",
+  description: "Columns at the corners of a plan outline, along its sides, or at points, from a foot level up to a top level or a roof, with an optional base and capital. Leaves a columns result that arches and beams span between.",
   schema: z.object({
     op: z.literal("columns"),
     name: z.string(),
@@ -111,24 +119,45 @@ export const columns = defineOperator({
     profile: ProfileRef,
     foot: Length.optional(),
     top: Height,
+    /** Columns at these corners, or on the bay lines of these sides, rise to another top instead. */
+    tops: z.array(z.object({ corners: z.array(Num.int()).optional(), sides: z.array(Num.int()).optional(), top: Height }).strict()).optional(),
+    /** A wider base under the shaft, from the foot. */
+    base: ColumnEnd.optional(),
+    /** A capital on the shaft, up to the top; its profile's local y runs along the wall, local z into the building. */
+    capital: ColumnEnd.optional(),
     /** Turn the profile's local z into the building (default: world X / Y as for any vertical member). */
     orient: z.boolean().optional(),
+    /** Direction of the profiles' local z for every column (overrides `orient`). */
+    up: Vec3Spec.optional(),
     color: Color.optional(),
   }).strict(),
   run(ctx, p, path) {
     const profile = ctx.profile(p.profile, `${path}.profile`);
     const foot = ctx.optionalLength(p.foot, `${path}.foot`) ?? 0;
     const topAt = ctx.height(p.top, `${path}.top`);
+    const tops = (p.tops ?? []).map((t, i) => ({ ...t, at: ctx.height(t.top, `${path}.tops[${i}].top`) }));
+    const end = (spec: z.infer<typeof ColumnEnd> | undefined, key: string) =>
+      spec && { profile: ctx.profile(spec.profile, `${path}.${key}.profile`), height: ctx.length(spec.height, `${path}.${key}.height`) };
+    const base = end(p.base, "base");
+    const capital = end(p.capital, "capital");
+    const up = p.up && ctx.vec3(p.up, `${path}.up`);
     const color = p.color ?? ctx.color;
     const placed = stations(ctx, p.at, `${path}.at`).map((st, i): PlacedColumn => {
-      const base = lifted(st.at, foot);
-      const top = topAt(base);
+      const q = lifted(st.at, foot);
+      const override = tops.find((t) =>
+        (st.corner !== undefined && t.corners?.includes(st.corner)) || (st.side !== undefined && t.sides?.includes(st.side)));
+      const top = (override?.at ?? topAt)(q);
       if (top <= foot) throw new BuildError(`column ${i}: top ${top} is not above foot ${foot}`, path);
-      const el = ctx.addElement({
-        id: `${p.name}_${i}`, kind: "straight", start: base, end: lifted(base, top), profile,
-        ...(p.orient && st.inward ? { up: st.inward } : {}), ...(color ? { color } : {}),
-      });
-      return { id: el.id, at: base, top, inward: st.inward, profile };
+      const orient = up ?? (p.orient && st.inward ? st.inward : undefined);
+      const rest = { ...(orient ? { up: orient } : {}), ...(color ? { color } : {}) };
+      const seat = base ? foot + base.height : foot;
+      const neck = capital ? top - capital.height : top;
+      if (neck <= seat) throw new BuildError(`column ${i}: the base and the capital leave no shaft between ${seat} and ${neck}`, path);
+      const kind = "straight" as const;
+      if (base) ctx.addElement({ id: `${p.name}_${i}_base`, kind, start: q, end: lifted(q, seat), profile: base.profile, ...rest });
+      const el = ctx.addElement({ id: `${p.name}_${i}`, kind, start: lifted(q, seat), end: lifted(q, neck), profile, ...rest });
+      if (capital) ctx.addElement({ id: `${p.name}_${i}_capital`, kind, start: lifted(q, neck), end: lifted(q, top), profile: capital.profile, ...rest });
+      return { id: el.id, at: q, top, inward: st.inward, profile };
     });
     ctx.put(p.name, { kind: "columns", columns: placed }, path);
   },
@@ -156,7 +185,7 @@ const ARCH_SAMPLES = 64;
 
 export const arches = defineOperator({
   name: "arches",
-  description: "Arches between each two consecutive columns of a columns result (around in a ring unless open), or from each column to the nearest of another result: semicircular, or segmental with a rise, springing at a level or raised until they just touch what they stand `under`.",
+  description: "Arches between each two consecutive columns of a columns result (around in a ring unless open), or from each column to the nearest of another result: semicircular, or segmental with a rise, springing at a level, with their crowns at one, or raised until they just touch what they stand `under`.",
   schema: z.object({
     op: z.literal("arches"),
     name: z.string(),
@@ -164,12 +193,13 @@ export const arches = defineOperator({
     /** Pair each column of `between` with the nearest column of this result instead of the next one. */
     to: z.string().optional(),
     profile: ProfileRef,
-    /** Springing level. */
+    /** Springing level of the arch axis. */
     spring: Length.optional(),
+    /** Or the level of the crown of the arch axis: each arch springs its own rise (half its span when semicircular) below it. */
+    crown: Length.optional(),
     /**
-     * Instead of `spring`: the arch is raised until its back just touches this, anywhere along
-     * it: a level, a roof with an offset, or `{ "columns": offset }`, the line between the two
-     * column tops moved by `offset`.
+     * Or: the arch is raised until its back just touches this, anywhere along it: a level, a roof
+     * with an offset, or `{ "columns": offset }`, the line between the two column tops moved by `offset`.
      */
     under: z.union([Height, z.object({ columns: Length }).strict()]).optional(),
     /** Rise of a segmental arch (default: a semicircle). */
@@ -183,8 +213,10 @@ export const arches = defineOperator({
   }).strict(),
   run(ctx, p, path) {
     const profile = ctx.profile(p.profile, `${path}.profile`);
-    if ((p.spring === undefined) === (p.under === undefined)) throw new BuildError("give spring or under", path);
+    const given = [p.spring, p.crown, p.under].filter((v) => v !== undefined).length;
+    if (given !== 1) throw new BuildError("give exactly one of spring, crown or under", path);
     const spring = ctx.optionalLength(p.spring, `${path}.spring`);
+    const crown = ctx.optionalLength(p.crown, `${path}.crown`);
     const rise = ctx.optionalLength(p.rise, `${path}.rise`);
     const inward = ctx.optionalLength(p.inward, `${path}.inward`) ?? 0;
     const segment = ctx.optionalLength(p.segment, `${path}.segment`) ?? ARC_SEGMENT;
@@ -203,13 +235,13 @@ export const arches = defineOperator({
       // Circle of the arch over its chord: radius and the centre's depth below the springing.
       const radius = (half * half + r * r) / (2 * r);
       const below = radius - r;
-      const level = spring ?? Math.min(...Array.from({ length: ARCH_SAMPLES + 1 }, (_, j) => {
+      const level = spring ?? (crown !== undefined ? crown - r : Math.min(...Array.from({ length: ARCH_SAMPLES + 1 }, (_, j) => {
         const x = (2 * half * j) / ARCH_SAMPLES;
         const q = add(from, scale(chord, j / ARCH_SAMPLES));
         const arc = Math.sqrt(Math.max(0, radius * radius - (x - half) ** 2)) - below;
         const limit = underAt ? underAt(q) : a.top + ((b.top - a.top) * j) / ARCH_SAMPLES + underColumns!;
         return limit - back - arc;
-      }));
+      })));
       const start = lifted(from, level);
       const end = lifted(to, level);
       let startTangent: Vec3 = WORLD_Z;
@@ -367,6 +399,31 @@ export const slab = defineOperator({
   },
 });
 
+export const pyramid = defineOperator({
+  name: "pyramid",
+  description: "A pyramid of solid plates over a plan outline, from a base level (or a roof the base stands on) up to an apex over the centroid: a lantern roof, a spire.",
+  schema: z.object({
+    op: z.literal("pyramid"),
+    name: z.string(),
+    plan: z.string(),
+    base: Height,
+    /** Level of the apex. */
+    apex: Length,
+    thickness: Length,
+    color: Color.optional(),
+    alpha: Num.optional(),
+    reflection: Num.optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const plan = ctx.plan(p.plan, `${path}.plan`);
+    const baseAt = ctx.height(p.base, `${path}.base`);
+    const apex = at(plan.centroid, ctx.length(p.apex, `${path}.apex`));
+    plan.sides.forEach((s, k) => {
+      ctx.addElement(plateOf(ctx, `${p.name}${k}`, [lifted(s.a, baseAt(s.a)), lifted(s.b, baseAt(s.b)), apex], p, path));
+    });
+  },
+});
+
 export const box = defineOperator({
   name: "box",
   description: "A solid block aligned with the axes, between x, y and z ranges.",
@@ -474,7 +531,7 @@ function clip(polygon: readonly Vec3[], point: Vec3, normal: Vec3): Vec3[] {
   return out;
 }
 
-export const supportOperators = [columns, arches, beams, member, plate, slab, box, band, outline];
+export const supportOperators = [columns, arches, beams, member, plate, slab, pyramid, box, band, outline];
 
 // Keep helpers that later operators may share.
 export { lifted, halfDepth, cross };
