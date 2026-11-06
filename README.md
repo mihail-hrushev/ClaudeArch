@@ -15,9 +15,9 @@ npm run snapshot # geometry regression check against snapshots/
 
 - `index.html` – full-screen canvas
 - `src/main.ts` – engine + render loop
-- `src/scene.ts` – thin host: camera, environment, model registry (`?model=curitibaV2` default, `?model=test`), axes, spectator, stats
+- `src/scene.ts` – thin host: camera, environment, model registry (`?model=curitibaV2` default, `?model=crystalPalace`, `?model=test`), axes, spectator, stats
 - `src/models/` – Babylon-free model definitions, each exporting a `build(): Model` function and its camera `view`
-- `src/generators/` – parametric generators: `curitibaV2` (glass-surface greenhouse), `glassSurface`, `handrail`, `stair`
+- `src/generators/` – parametric generators: `curitibaV2` (glass-surface greenhouse), `crystalPalace` (Palacio de Cristal, Madrid; its dimensions, marked published or estimate, are in `src/models/crystalPalace.ts`), `glassSurface`, `handrail`, `stair`
 - `src/fem/` – element model: types, profiles, placement, discretize, dedupe, sweep, plate, vec
 - `src/render/` – Babylon meshes, environment, cameras, axes, stats
 - `scripts/snapshot.ts`, `snapshots/` – geometry regression: `npm run snapshot` compares, `npm run snapshot:update` rewrites

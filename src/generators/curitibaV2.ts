@@ -149,7 +149,7 @@ const BEAM_SEGMENT = 25;
 const ARCH_SAMPLES = 200;
 
 /** One side of a counter-clockwise plan polygon, with the bisector planes at its two corners. */
-interface Side {
+export interface Side {
   readonly a: Vec3;
   readonly b: Vec3;
   readonly length: number;
@@ -160,7 +160,7 @@ interface Side {
   readonly corners: readonly CutPlane[];
 }
 
-function sidesOf(polygon: readonly P2[]): Side[] {
+export function sidesOf(polygon: readonly P2[]): Side[] {
   const n = polygon.length;
   const dir = (i: number) => normalize(sub(at(polygon[(i + 1) % n]), at(polygon[i])));
   return polygon.map((p, i) => {

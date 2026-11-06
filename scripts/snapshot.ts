@@ -9,10 +9,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Model } from "../src/fem/types";
 import { buildCuritibaV2 } from "../src/models/curitibaV2";
+import { buildCrystalPalace } from "../src/models/crystalPalace";
 import { buildTestModel } from "../src/models/testModel";
 
 const MODELS: Record<string, () => Model> = {
   curitibaV2: buildCuritibaV2,
+  crystalPalace: buildCrystalPalace,
   testModel: buildTestModel,
 };
 

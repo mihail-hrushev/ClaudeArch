@@ -12,6 +12,7 @@ import { createStatsOverlay } from "./render/stats";
 import { installIvyToggle } from "./render/ivyLayer";
 import type { View } from "./models/view";
 import { buildCuritibaV2, curitibaV2View } from "./models/curitibaV2";
+import { buildCrystalPalace, crystalPalaceView } from "./models/crystalPalace";
 import { buildTestModel, testView } from "./models/testModel";
 
 interface ModelEntry {
@@ -25,6 +26,7 @@ interface ModelEntry {
 /** Scene content, picked via `?model=<key>`; the first entry is the default. */
 const MODELS: readonly ModelEntry[] = [
   { key: "curitibaV2", build: buildCuritibaV2, view: curitibaV2View },
+  { key: "crystalPalace", build: buildCrystalPalace, view: crystalPalaceView },
   { key: "test", build: buildTestModel, view: testView },
 ];
 
