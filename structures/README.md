@@ -74,7 +74,7 @@ and, for most operators, the name of the **result** later operations refer to: a
 result (glass blocks), a `columns` result (`between` of arches and beams, `{ "column": … }`
 points), a `height` result (a roof: `{ "on": … }` heights) or a `members` result.
 
-Glazing operators (`surface`, `walls`, `roof`, `dome`, `floor`) share these fields: `type` (a
+Glazing operators (`surface`, `walls`, `roof`, `dome`, `floor`, `deck`) share these fields: `type` (a
 surface type name or an inline one), and per use `ribStep`, `ribStations`, `evenBays` (default
 true: the rib step is rounded so whole bays divide the width), `ribsOnGrid`, `align`, `padding`,
 `cuts`, `openings`.
@@ -86,6 +86,7 @@ true: the rib step is rounded so whole bays divide the width), `ribsOnGrid`, `al
 | `roof` | a face rising from every side; leaves a height field | `plan`, `eaves`, `rise?`, `run?`, `slope?` (degrees at the eaves), `bays?` (as for walls) |
 | `dome` | a faceted dome over a plan | `plan`, `base`, `rise`, `apex?`, `springing?` (90 = vertical, `"flat"`, or degrees) |
 | `floor` | a tiled floor over a plan, structure below | `plan`, `level`, `along?`, `ceiling?` |
+| `deck` | tiled deck bays between two outlines, e.g. a walkway between beam lines: one bay per side of the outer outline, closed along the inner one | `outer`, `inner`, `level` (walking surface) |
 | `columns` | columns at corners, along sides, opposite other columns, or at points; leaves a columns result | `at` (`{plan, corners?, inset?}` / `{plan, sides?, spacing or bays, inset?, includeCorners?}` / `{plan, sides?, opposite, inset?, includeCorners?}`: at the corners and opposite the columns of a result or the convex corners of an outline, each projected onto its nearest side / `{points}`), `profile`, `foot?`, `top` (height), `orient?` |
 | `arches` | arches between consecutive columns (a ring unless `open`), or from each column to the nearest of another result | `between`, `to?`, `profile`, `spring` or `under` (a height, or `{columns: offset}`: the line between the column tops; the arch is raised until its back just touches it), `rise?` (segmental), `inward?` |
 | `beams` | beams between consecutive columns, or to the nearest of another result, at a level or following a roof | `between`, `to?`, `profile`, `level` (height), `open?`, `inward?` |
@@ -94,7 +95,7 @@ true: the rib step is rounded so whole bays divide the width), `ribsOnGrid`, `al
 | `slab` | a plate covering a plan outline | `plan`, `level`, `thickness`, `color?` |
 | `box` | an axis-aligned solid block | `x`, `y`, `z` ranges, `color?` |
 | `band` | a mitred band along the sides of a plan: plinth, frieze, cornice | `plan`, `thickness`, `z`, `inset?`, `color?` |
-| `outline` | a new plan outline from columns, points or a cut outline | `columns?` / `points?` / `plan?` + `cuts?` |
+| `outline` | a new plan outline from columns, points or a cut outline | `columns?` / `points?` / `plan?` + `cuts?`, `towards?` + `share?` (corners moved a share of the way to the nearest column of a result, e.g. the centre line between two column rings) |
 | `handrail` | handrail sections along plan sides or between two points | `type`, `along` (`{plan, sides?, level, inward?}` / `{from, to}`), `padding?`, `railBeamDrop?` |
 | `stair` | a stair along a centre line | `type`, `path`, `floor?`, `height`, `arrival?` |
 

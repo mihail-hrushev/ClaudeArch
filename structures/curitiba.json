@@ -64,7 +64,8 @@
     "towerTop": "11m",
     "walk": "3.6m",
     "eavesBeams": "5770mm",
-    "floorBeams": "3380mm"
+    "floorBeams": "3380mm",
+    "floorBeamSoffit": "3260mm"
   },
   "plan": {
     "tower1": { "regular": 8, "apothem": "4.2m" },
@@ -89,6 +90,13 @@
     { "op": "beams", "name": "roofBeams", "between": "wallColumns", "to": "towerColumns", "profile": "beam", "level": { "on": "groundRoof", "offset": "-120mm" } },
     { "op": "arches", "name": "roofArches", "between": "wallColumns", "to": "towerColumns", "profile": "arch", "under": { "on": "groundRoof", "offset": "-240mm" } },
     { "op": "beams", "name": "eavesBeams", "between": "wallColumns", "profile": "beam", "level": "eavesBeams", "inward": "100mm" },
-    { "op": "arches", "name": "groundArches", "between": "wallColumns", "profile": "arch", "under": "5650mm", "inward": "100mm" }
+    { "op": "arches", "name": "groundArches", "between": "wallColumns", "profile": "arch", "under": "5650mm", "inward": "100mm" },
+    { "op": "outline", "name": "walkEdge", "columns": "wallColumns", "towards": "towerColumns" },
+    { "op": "beams", "name": "floorBeams", "between": "wallColumns", "to": "towerColumns", "profile": "beam", "level": "floorBeams" },
+    { "op": "arches", "name": "floorArches", "between": "wallColumns", "to": "towerColumns", "profile": "arch", "under": "floorBeamSoffit" },
+    { "op": "arches", "name": "walkArches", "between": "towerColumns", "profile": "arch", "under": "floorBeamSoffit" },
+    { "op": "deck", "name": "walkDeck", "type": "deck", "outer": "walkEdge", "inner": "towers", "level": "walk", "evenBays": false },
+    { "op": "handrail", "name": "walkOuter", "type": "walk", "along": { "plan": "walkEdge", "level": "walk" } },
+    { "op": "handrail", "name": "walkInner", "type": "walk", "along": { "plan": "towers", "level": "walk" }, "padding": "300mm" }
   ]
 }
