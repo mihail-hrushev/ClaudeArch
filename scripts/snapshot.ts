@@ -70,7 +70,8 @@ for (const [name, build] of Object.entries(MODELS)) {
     failed = true;
     continue;
   }
-  const expected = readFileSync(file, "utf8");
+  // Line endings are not geometry: a CRLF checkout (core.autocrlf) must still compare equal.
+  const expected = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
   if (expected === actual) {
     console.log(`${name}: ${model.elements.length} elements, unchanged`);
     continue;
