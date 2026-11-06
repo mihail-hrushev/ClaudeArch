@@ -15,7 +15,21 @@
     "naveBase": { "square": "336mm" },
     "naveCapital": { "rect": ["408mm", "264mm"] },
     "arch": { "circle": "50mm" },
-    "beam": { "rect": ["120mm", "240mm"] }
+    "beam": { "rect": ["120mm", "240mm"] },
+    "porticoShaft": { "circle": "300mm" },
+    "porticoBase": { "square": "840mm" },
+    "porticoCapital": { "rect": ["1020mm", "660mm"] },
+    "baluster": { "square": "160mm" },
+    "balustradeTop": { "rect": ["240mm", "120mm"] },
+    "balustradeMiddle": { "circle": "30mm" },
+    "balustradeKick": { "rect": ["200mm", "140mm"] }
+  },
+  "handrails": {
+    "balustrade": {
+      "height": "1000mm", "middleHeight": "550mm", "kickHeight": "100mm", "postStep": "1200mm",
+      "profiles": { "post": "baluster", "topRail": "balustradeTop", "middleRail": "balustradeMiddle", "kickRail": "balustradeKick" },
+      "color": [0.86, 0.83, 0.76]
+    }
   },
   "glass": {
     "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "gap": "15mm", "alpha": 0.5, "reflection": 0.5 }
@@ -48,7 +62,10 @@
     "drumCornice": "17.82m",
     "drumTop": "18m",
     "domeApex": "22.6m",
-    "lanternTop": "24m"
+    "lanternTop": "24m",
+    "entablatureFoot": "5.2m",
+    "entablatureTop": "5.8m",
+    "porticoTop": "5.98m"
   },
   "plan": {
     "outer": { "cross": { "right": "20m", "rear": "14m", "left": "20m" }, "width": "14m", "apseSides": 3, "crossing": "8m" },
@@ -56,7 +73,9 @@
     "wallLine": { "offset": "outer", "by": "-296mm" },
     "naveLine": { "cross": { "right": "20m", "rear": "14m", "left": "20m" }, "width": "7.348m", "apseSides": 3 },
     "crossing": { "rect": ["8m", "8m"] },
-    "lanternBase": { "rect": ["1.6m", "1.6m"] }
+    "lanternBase": { "rect": ["1.6m", "1.6m"] },
+    "colonnade": { "rect": ["10.98m", "2.94m"], "center": [0, "-8.8m"] },
+    "lake": { "ellipse": ["90m", "40m"], "sides": 48, "center": [0, "-37.05m"] }
   },
   "build": [
     { "op": "bays", "name": "bays", "plan": "nave", "step": "2.8m",
@@ -105,6 +124,29 @@
     { "op": "slab", "name": "floorRear", "plan": "rearFloor", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] },
     { "op": "slab", "name": "floorRightApse", "plan": "rightApse", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] },
     { "op": "slab", "name": "floorRearApse", "plan": "rearApse", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] },
-    { "op": "slab", "name": "floorLeftApse", "plan": "leftApse", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] }
+    { "op": "slab", "name": "floorLeftApse", "plan": "leftApse", "level": "floor", "thickness": "100mm", "color": [0.86, 0.83, 0.76] },
+
+    { "op": "columns", "name": "porticoColumns", "at": { "plan": "colonnade", "sides": [0, 2], "bays": 3 }, "profile": "porticoShaft",
+      "foot": "floor", "top": "entablatureFoot", "base": { "profile": "porticoBase", "height": "360mm" },
+      "capital": { "profile": "porticoCapital", "height": "420mm" }, "up": [0, 1, 0], "color": [0.86, 0.83, 0.76] },
+    { "op": "box", "name": "porticoBase", "x": ["-6m", "6m"], "y": ["-10.6m", "-7m"], "z": [0, "floor"], "color": [0.86, 0.83, 0.76] },
+    { "op": "box", "name": "entablature", "x": ["-6m", "6m"], "y": ["-10.6m", "-7m"], "z": ["entablatureFoot", "entablatureTop"], "color": [0.86, 0.83, 0.76] },
+    { "op": "box", "name": "porticoCornice", "x": ["-6.2m", "6.2m"], "y": ["-10.8m", "-7m"], "z": ["entablatureTop", "porticoTop"], "color": [0.86, 0.83, 0.76] },
+
+    { "op": "box", "name": "terrace", "x": ["-10m", "10m"], "y": ["-14.6m", "-10.6m"], "z": [0, "floor"], "color": [0.86, 0.83, 0.76] },
+    { "op": "box", "name": "step1", "x": ["-5m", "5m"], "y": ["-14.95m", "-14.6m"], "z": [0, "1.05m"], "color": [0.63, 0.62, 0.61] },
+    { "op": "box", "name": "step2", "x": ["-5m", "5m"], "y": ["-15.3m", "-14.95m"], "z": [0, "0.9m"], "color": [0.63, 0.62, 0.61] },
+    { "op": "box", "name": "step3", "x": ["-5m", "5m"], "y": ["-15.65m", "-15.3m"], "z": [0, "0.75m"], "color": [0.63, 0.62, 0.61] },
+    { "op": "box", "name": "step4", "x": ["-5m", "5m"], "y": ["-16m", "-15.65m"], "z": [0, "0.6m"], "color": [0.63, 0.62, 0.61] },
+    { "op": "box", "name": "step5", "x": ["-5m", "5m"], "y": ["-16.35m", "-16m"], "z": [0, "0.45m"], "color": [0.63, 0.62, 0.61] },
+    { "op": "box", "name": "step6", "x": ["-5m", "5m"], "y": ["-16.7m", "-16.35m"], "z": [0, "0.3m"], "color": [0.63, 0.62, 0.61] },
+    { "op": "box", "name": "step7", "x": ["-5m", "5m"], "y": ["-17.05m", "-16.7m"], "z": [0, "0.15m"], "color": [0.63, 0.62, 0.61] },
+
+    { "op": "handrail", "name": "balustradeLeft", "type": "balustrade", "along": { "from": ["-10m", "-10.6m", "floor"], "to": ["-10m", "-14.6m", "floor"] } },
+    { "op": "handrail", "name": "balustradeFrontLeft", "type": "balustrade", "along": { "from": ["-10m", "-14.6m", "floor"], "to": ["-5m", "-14.6m", "floor"] } },
+    { "op": "handrail", "name": "balustradeFrontRight", "type": "balustrade", "along": { "from": ["5m", "-14.6m", "floor"], "to": ["10m", "-14.6m", "floor"] } },
+    { "op": "handrail", "name": "balustradeRight", "type": "balustrade", "along": { "from": ["10m", "-14.6m", "floor"], "to": ["10m", "-10.6m", "floor"] } },
+
+    { "op": "slab", "name": "lake", "plan": "lake", "level": "10mm", "thickness": "10mm", "color": [0.3, 0.46, 0.5], "alpha": 0.75, "reflection": 0.8 }
   ]
 }
