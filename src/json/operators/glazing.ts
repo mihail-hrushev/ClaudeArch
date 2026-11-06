@@ -1,0 +1,269 @@
+/**
+ * Glazing operators: glass surfaces placed one by one, or around and over plan outlines.
+ */
+import { z } from "zod";
+import { type Vec3, add, sub, scale, dot, cross, normalize, len, WORLD_Z } from "../../fem/vec";
+import { type P2, type Side, at } from "../../fem/plan";
+import { type CutPlane, type GlassSurface, type GlassSurfaceParams, glassSurface } from "../../generators/glassSurface";
+import { type BuildContext, BuildError, type SurfaceType } from "../context";
+import { CutSpec, Length, Num, PointSpec, SurfaceTypeSpec, TileAlign, Vec3Spec, Padding } from "../document";
+import { defineOperator } from "../operator";
+
+/** Fields every glazing operator takes: the surface type and what it may override per use. */
+const Glazing = {
+  type: z.union([z.string(), SurfaceTypeSpec]),
+  ribStep: Length.optional(),
+  /** Explicit rib positions along X (replaces ribStep). */
+  ribStations: z.array(Length).optional(),
+  /** Whole bays: the rib step is rounded so the ribs divide the width evenly (default true). */
+  evenBays: z.boolean().optional(),
+  ribsOnGrid: z.boolean().optional(),
+  align: TileAlign.optional(),
+  padding: Padding.optional(),
+  cuts: z.array(CutSpec).optional(),
+  openings: z.array(z.union([z.string(), z.array(CutSpec)])).optional(),
+};
+type GlazingParams = z.infer<z.ZodObject<typeof Glazing>>;
+
+/** Height: a level, or a height field result with an offset. */
+export const Height = z.union([Length, z.object({ on: z.string(), offset: Length.optional() }).strict()]);
+
+/** The parameters of one glass surface from a glazing operator's fields and its placement. */
+export function surfaceParams(
+  ctx: BuildContext, p: GlazingParams, path: string,
+  placement: Pick<GlassSurfaceParams, "base" | "alongX" | "alongZ" | "tangent" | "facing"> & { cuts?: readonly CutPlane[]; openings?: readonly (readonly CutPlane[])[] },
+): GlassSurfaceParams {
+  const type: SurfaceType = ctx.surfaceType(p.type, `${path}.type`);
+  const width = len(sub(placement.alongX, placement.base));
+  let ribStep = p.ribStep === undefined ? type.ribStep : ctx.length(p.ribStep, `${path}.ribStep`);
+  if (p.evenBays !== false && Number.isFinite(ribStep)) ribStep = width / Math.max(1, Math.round(width / ribStep));
+  if (!Number.isFinite(ribStep)) ribStep = width;
+  const padding = p.padding === undefined ? type.padding : ctx.padding(p.padding, `${path}.padding`);
+  return {
+    ...type,
+    ribStep,
+    ribStations: p.ribStations?.map((s, i) => ctx.length(s, `${path}.ribStations[${i}]`)),
+    ribsOnGrid: p.ribsOnGrid ?? type.ribsOnGrid,
+    padding,
+    tile: p.align ? { ...type.tile, align: p.align } : type.tile,
+    ...placement,
+    cuts: [...(placement.cuts ?? []), ...ctx.cuts(p.cuts, `${path}.cuts`)],
+    openings: [...(placement.openings ?? []), ...ctx.openings(p.openings, `${path}.openings`)],
+  };
+}
+
+/** Builds one block, registers it and returns it. */
+export function place(ctx: BuildContext, name: string, params: GlassSurfaceParams): GlassSurface {
+  const block = glassSurface(name, params);
+  ctx.addInstance(block);
+  return block;
+}
+
+const lifted = (q: Vec3, z: number): Vec3 => [q[0], q[1], z];
+
+/** Local tangent of a section at the base: `angle` degrees above the horizontal, towards the inside. */
+const tangentOf = (degrees: number): Vec3 => [0, Math.cos((degrees * Math.PI) / 180), Math.sin((degrees * Math.PI) / 180)];
+
+/** The sides of a plan an operator works on: all, or the given indices. */
+export function selectedSides(sides: readonly Side[], indices: readonly number[] | undefined): { side: Side; k: number }[] {
+  const all = sides.map((side, k) => ({ side, k }));
+  if (!indices) return all;
+  return indices.map((i) => all[((i % sides.length) + sides.length) % sides.length]);
+}
+
+export const surface = defineOperator({
+  name: "surface",
+  description: "One glass surface placed by its base, the end of its X axis and the top of its section (see generators/glassSurface).",
+  schema: z.object({
+    op: z.literal("surface"),
+    name: z.string(),
+    ...Glazing,
+    base: PointSpec,
+    alongX: PointSpec,
+    alongZ: PointSpec,
+    /** Section tangent at the base, in the local frame (default [0, 0, 1]). */
+    tangent: Vec3Spec.optional(),
+    /** Direction the glass faces, away from the structure (default: horizontal, outwards). */
+    facing: Vec3Spec.optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const block = place(ctx, p.name, surfaceParams(ctx, p, path, {
+      base: ctx.point(p.base, `${path}.base`), alongX: ctx.point(p.alongX, `${path}.alongX`), alongZ: ctx.point(p.alongZ, `${path}.alongZ`),
+      tangent: p.tangent && ctx.vec3(p.tangent, `${path}.tangent`), facing: p.facing && ctx.vec3(p.facing, `${path}.facing`),
+    }));
+    ctx.put(p.name, { kind: "surfaces", blocks: [block] }, path);
+  },
+});
+
+export const walls = defineOperator({
+  name: "walls",
+  description: "Upright glass walls along the sides of a plan outline, from a foot level (or a roof they stand on) up to a top level (or a roof they stop under); neighbouring walls meet on the corner bisectors.",
+  schema: z.object({
+    op: z.literal("walls"),
+    name: z.string(),
+    ...Glazing,
+    plan: z.string(),
+    /** Sides to glaze (default: all). */
+    sides: z.array(Num.int()).optional(),
+    foot: Height.optional(),
+    top: Height,
+    /** How far the wall runs on past a sloping foot or top it is cut by (default 10). */
+    overlap: Length.optional(),
+    /** Inset of the wall line from the plan outline, towards the inside. */
+    inset: Length.optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const plan = ctx.plan(p.plan, `${path}.plan`);
+    const footAt = ctx.height(p.foot ?? 0, `${path}.foot`);
+    const topAt = ctx.height(p.top, `${path}.top`);
+    const overlap = ctx.optionalLength(p.overlap, `${path}.overlap`) ?? 10;
+    const inset = ctx.optionalLength(p.inset, `${path}.inset`) ?? 0;
+    const sloping = (h: typeof footAt, a: Vec3, b: Vec3) => Math.abs(h(a) - h(b)) > 1e-9;
+    const blocks = selectedSides(plan.sides, p.sides).map(({ side: s, k }) => {
+      const [a, b] = [add(s.a, scale(s.inward, inset)), add(s.b, scale(s.inward, inset))];
+      const cuts: CutPlane[] = [...s.corners];
+      let foot = Math.min(footAt(a), footAt(b));
+      let top = Math.max(topAt(a), topAt(b));
+      if (sloping(footAt, a, b)) {
+        foot -= overlap;
+        const up = cross(s.inward, sub(lifted(b, footAt(b)), lifted(a, footAt(a))));
+        cuts.push({ point: lifted(a, footAt(a)), normal: up[2] < 0 ? scale(up, -1) : up });
+      }
+      if (sloping(topAt, a, b)) {
+        top += overlap;
+        const up = cross(s.inward, sub(lifted(b, topAt(b)), lifted(a, topAt(a))));
+        cuts.push({ point: lifted(a, topAt(a)), normal: up[2] > 0 ? scale(up, -1) : up });
+      }
+      if (top <= foot) throw new BuildError(`side ${k}: top ${top} is not above foot ${foot}`, path);
+      return place(ctx, `${p.name}_side${k}`, surfaceParams(ctx, p, path, {
+        base: lifted(a, foot), alongX: lifted(b, foot), alongZ: lifted(a, top), cuts,
+      }));
+    });
+    ctx.put(p.name, { kind: "surfaces", blocks }, path);
+  },
+});
+
+/** Circular section from the origin, leaving at `slope` degrees, through (run, rise). */
+function sectionHeight(run: number, rise: number, slope: number | undefined): (d: number) => number {
+  if (slope === undefined) return (d) => (rise * Math.min(run, Math.max(0, d))) / run;
+  const theta = (slope * Math.PI) / 180;
+  const denominator = 2 * (run * Math.sin(theta) - rise * Math.cos(theta));
+  if (Math.abs(denominator) < 1e-9 * (run + Math.abs(rise))) return (d) => (rise * Math.min(run, Math.max(0, d))) / run;
+  const radius = (run * run + rise * rise) / denominator;
+  const [cy, cz] = [radius * Math.sin(theta), -radius * Math.cos(theta)];
+  const sign = Math.sign(radius);
+  return (d) => {
+    const y = Math.min(run, Math.max(0, d));
+    const inside = Math.max(0, radius * radius - (y - cy) ** 2);
+    return cz + sign * Math.sqrt(inside);
+  };
+}
+
+export const roof = defineOperator({
+  name: "roof",
+  description: "A roof face rising from every side of a plan outline (the eaves) by `rise` over `run` inward, with one section for all faces so they meet on the corner bisectors; `slope` at the eaves bends the section into an arc. Leaves a height field.",
+  schema: z.object({
+    op: z.literal("roof"),
+    name: z.string(),
+    ...Glazing,
+    plan: z.string(),
+    sides: z.array(Num.int()).optional(),
+    eaves: Length,
+    /** Height of the section at `run` from the eaves. With `slope` and no rise the arc levels off there. */
+    rise: Length.optional(),
+    /** Horizontal reach of the section (default: from the eaves to the middle of the plan). */
+    run: Length.optional(),
+    /** Angle of the roof at the eaves, degrees above the horizontal (default: straight to the rise). */
+    slope: Num.optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const plan = ctx.plan(p.plan, `${path}.plan`);
+    const eaves = ctx.length(p.eaves, `${path}.eaves`);
+    const run = ctx.optionalLength(p.run, `${path}.run`)
+      ?? Math.min(...plan.sides.map((s) => dot(sub(at(plan.centroid), s.a), s.inward)));
+    let rise = ctx.optionalLength(p.rise, `${path}.rise`);
+    if (rise === undefined) {
+      if (p.slope === undefined) throw new BuildError("give rise, slope or both", path);
+      rise = run * Math.tan((p.slope * Math.PI) / 360);
+    }
+    const section = sectionHeight(run, rise, p.slope);
+    const heightAt = (q: Vec3) => eaves + section(Math.min(...plan.sides.map((s) => dot(sub(q, s.a), s.inward))));
+    const blocks = selectedSides(plan.sides, p.sides).map(({ side: s, k }) => {
+      const base = lifted(s.a, eaves);
+      return place(ctx, `${p.name}_side${k}`, surfaceParams(ctx, p, path, {
+        base, alongX: lifted(s.b, eaves), alongZ: add(add(base, scale(s.inward, run)), [0, 0, rise]),
+        tangent: p.slope === undefined ? undefined : tangentOf(p.slope), cuts: s.corners,
+      }));
+    });
+    ctx.put(p.name, { kind: "height", field: { heightAt }, blocks }, path);
+  },
+});
+
+export const dome = defineOperator({
+  name: "dome",
+  description: "A faceted dome over a plan outline: one curved face per side, from the base level up to the apex `rise` above it, springing vertically (default), flat to the apex, or at a given angle.",
+  schema: z.object({
+    op: z.literal("dome"),
+    name: z.string(),
+    ...Glazing,
+    plan: z.string(),
+    sides: z.array(Num.int()).optional(),
+    base: Length,
+    rise: Length,
+    /** Plan position of the apex (default: the centroid). */
+    apex: z.tuple([Length, Length]).optional(),
+    /** Angle at the base, degrees above the horizontal (default 90, vertical), or "flat". */
+    springing: z.union([Num, z.literal("flat")]).optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const plan = ctx.plan(p.plan, `${path}.plan`);
+    const base = ctx.length(p.base, `${path}.base`);
+    const rise = ctx.length(p.rise, `${path}.rise`);
+    const apex: P2 = p.apex ? ctx.p2(p.apex, `${path}.apex`) : plan.centroid;
+    const top = at(apex, base + rise);
+    const blocks = selectedSides(plan.sides, p.sides).map(({ side: s, k }) => {
+      const inward = dot(sub(top, lifted(s.a, base)), s.inward);
+      const tangent = p.springing === "flat" ? normalize([0, inward, rise]) : p.springing === undefined ? undefined : tangentOf(p.springing);
+      return place(ctx, `${p.name}_side${k}`, surfaceParams(ctx, p, path, {
+        base: lifted(s.a, base), alongX: lifted(s.b, base), alongZ: top, tangent, cuts: s.corners,
+      }));
+    });
+    ctx.put(p.name, { kind: "surfaces", blocks }, path);
+  },
+});
+
+export const floor = defineOperator({
+  name: "floor",
+  description: "A tiled floor over a plan outline at a level, its tiles on top and its structure hanging below; the tile grid runs along the first side (or the given one).",
+  schema: z.object({
+    op: z.literal("floor"),
+    name: z.string(),
+    ...Glazing,
+    plan: z.string(),
+    level: Length,
+    /** Side of the plan the tile grid runs along (default 0). */
+    along: Num.int().optional(),
+    /** Glass side down instead: tiles below, structure on top. */
+    ceiling: z.boolean().optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const plan = ctx.plan(p.plan, `${path}.plan`);
+    const level = ctx.length(p.level, `${path}.level`);
+    const s = plan.sides[(((p.along ?? 0) % plan.sides.length) + plan.sides.length) % plan.sides.length];
+    const outline = plan.polygon.map((q) => at(q, level));
+    const x = s.along;
+    const zAxis = s.inward;
+    const origin = lifted(s.a, level);
+    const xs = outline.map((q) => dot(sub(q, origin), x));
+    const zs = outline.map((q) => dot(sub(q, origin), zAxis));
+    const corner = (u: number, v: number) => add(add(origin, scale(x, u)), scale(zAxis, v));
+    const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+    const block = place(ctx, p.name, surfaceParams(ctx, p, path, {
+      base: corner(x0, z0), alongX: corner(x1, z0), alongZ: corner(x0, z1), facing: p.ceiling ? scale(WORLD_Z, -1) : WORLD_Z,
+      cuts: outline.map((q, j) => ({ point: q, normal: normalize(cross(WORLD_Z, sub(outline[(j + 1) % outline.length], q))) })),
+    }));
+    ctx.put(p.name, { kind: "surfaces", blocks: [block] }, path);
+  },
+});
+
+export const glazingOperators = [surface, walls, roof, dome, floor];

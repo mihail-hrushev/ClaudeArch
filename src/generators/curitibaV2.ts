@@ -148,34 +148,8 @@ const BEAM_SEGMENT = 25;
 /** Points along an arch where it is tested against its beam. */
 const ARCH_SAMPLES = 200;
 
-/** One side of a counter-clockwise plan polygon, with the bisector planes at its two corners. */
-export interface Side {
-  readonly a: Vec3;
-  readonly b: Vec3;
-  readonly length: number;
-  /** Unit vector along the side. */
-  readonly along: Vec3;
-  /** Horizontal unit normal towards the inside. */
-  readonly inward: Vec3;
-  readonly corners: readonly CutPlane[];
-}
-
-export function sidesOf(polygon: readonly P2[]): Side[] {
-  const n = polygon.length;
-  const dir = (i: number) => normalize(sub(at(polygon[(i + 1) % n]), at(polygon[i])));
-  return polygon.map((p, i) => {
-    const a = at(p);
-    const b = at(polygon[(i + 1) % n]);
-    const along = dir(i);
-    return {
-      a, b, along, length: len(sub(b, a)), inward: cross(WORLD_Z, along),
-      corners: [
-        { point: a, normal: normalize(add(dir((i + n - 1) % n), along)) },
-        { point: b, normal: scale(normalize(add(along, dir((i + 1) % n))), -1) },
-      ],
-    };
-  });
-}
+import { type Side, sidesOf } from "../fem/plan";
+export { type Side, sidesOf };
 
 /** Regular octagon around (cx, 0), corners at 0°, 45°, …: one faces the front. */
 const octagon = (cx: number, radius: number): P2[] => Array.from({ length: OCTAGON }, (_, i) => {

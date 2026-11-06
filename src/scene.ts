@@ -14,12 +14,13 @@ import type { View } from "./models/view";
 import { buildCuritibaV2, curitibaV2View } from "./models/curitibaV2";
 import { buildCrystalPalace, crystalPalaceView } from "./models/crystalPalace";
 import { buildTestModel, testView } from "./models/testModel";
+import { loadStructure, structureKeys } from "./models/structures";
 
 interface ModelEntry {
   /** Value of the `?model=` URL parameter. */
   readonly key: string;
   /** Final world-space model (assembled and de-duplicated). */
-  readonly build: () => Model;
+  readonly build: () => Model | Promise<Model>;
   readonly view: View;
 }
 
@@ -30,13 +31,20 @@ const MODELS: readonly ModelEntry[] = [
   { key: "test", build: buildTestModel, view: testView },
 ];
 
-function selectModel(): ModelEntry {
+/** The model named by `?model=`: a built-in one, or a structure document from structures/. */
+async function selectModel(): Promise<ModelEntry> {
   const key = new URLSearchParams(location.search).get("model");
-  return MODELS.find((m) => m.key === key) ?? MODELS[0];
+  const builtIn = MODELS.find((m) => m.key === key);
+  if (builtIn) return builtIn;
+  if (key && structureKeys.includes(key)) {
+    const built = await loadStructure(key);
+    return { key, build: () => built.model, view: built.view };
+  }
+  return MODELS[0];
 }
 
 /** World convention: right-handed, Z up (same coordinates as the FEM model). */
-export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
+export async function createScene(engine: Engine, canvas: HTMLCanvasElement): Promise<Scene> {
   // Plain uniforms instead of uniform buffers: Babylon declares one buffer per light, and WebGL
   // on D3D11 allows ~12 blocks per shader, which would cap the night mode at ~9 lights per mesh.
   engine.disableUniformBuffers = true;
@@ -45,7 +53,7 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
   // No hover interaction yet: skip ray-picking all triangles on every mouse move.
   scene.skipPointerMovePicking = true;
 
-  const entry = selectModel();
+  const entry = await selectModel();
   const { view } = entry;
   const camera = new ArcRotateCamera("camera", view.alpha, view.beta, view.radius, new Vector3(...view.target), scene);
   camera.upVector = new Vector3(0, 0, 1);
@@ -65,7 +73,7 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
   const environment = createEnvironment(scene, camera, spectator.camera);
 
   createAxes(scene);
-  const model = entry.build();
+  const model = await entry.build();
   environment.addModel(buildModel(model, scene), model);
   // Ivy decoration layer (src/render/ivyLayer.ts): "?ivy=1" grows it at start-up, "I" toggles it.
   installIvyToggle(scene, model, environment);

@@ -1,0 +1,65 @@
+{
+  "name": "pavilion",
+  "description": "Test of the operators: an octagonal glass tower with a dome on a glazed hall with a curved roof, columns, arches and a gallery floor.",
+  "color": [0.97, 0.97, 0.95],
+  "view": { "target": [0, 0, 500], "radius": 3200, "alpha": 125, "beta": 70 },
+  "profiles": {
+    "rib": { "rect": ["50mm", "140mm"] },
+    "cutRib": { "rect": ["80mm", "200mm"] },
+    "frame": { "rect": ["30mm", "80mm"] },
+    "mullion": { "rect": ["30mm", "60mm"] },
+    "column": { "circle": "150mm" },
+    "arch": { "circle": "50mm" },
+    "beam": { "rect": ["120mm", "240mm"] },
+    "post": { "square": "60mm" },
+    "topRail": { "circle": "25mm" },
+    "middleRail": { "circle": "12mm" },
+    "kickRail": { "rect": ["10mm", "120mm"] }
+  },
+  "glass": {
+    "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "gap": "15mm", "alpha": 0.5, "reflection": 0.5, "align": "middle-center" }
+  },
+  "surfaces": {
+    "wall": {
+      "ribStep": "1750mm",
+      "tile": { "preset": "clear", "align": "top-center" },
+      "profiles": { "mainRib": "rib", "cutRib": "cutRib", "horizontalFrame": "frame", "verticalFrame": "mullion" }
+    },
+    "dome": { "extends": "wall", "tile": { "align": "middle-center" } },
+    "hallRoof": { "extends": "wall", "ribStep": "2800mm", "tile": { "align": "bottom-center" } },
+    "deck": {
+      "ribStep": "900mm",
+      "tile": { "width": "300mm", "length": "300mm", "thickness": "12mm", "gap": "4mm", "alpha": 1, "reflection": 0.15, "align": "middle-center",
+                "color": [0.86, 0.78, 0.66], "bevel": { "width": "6mm", "depth": "1.5mm" } },
+      "profiles": { "mainRib": { "rect": ["50mm", "88mm"] }, "horizontalFrame": { "rect": ["30mm", "60mm"] } }
+    }
+  },
+  "handrails": {
+    "gallery": {
+      "height": "1100mm", "middleHeight": "600mm", "kickHeight": "150mm", "postStep": "1500mm",
+      "profiles": { "post": "post", "topRail": "topRail", "middleRail": "middleRail", "kickRail": "kickRail", "railBeam": "beam" }
+    }
+  },
+  "levels": {
+    "hallEaves": "6m",
+    "towerTop": "11m",
+    "gallery": "3.6m"
+  },
+  "plan": {
+    "tower": { "regular": 8, "apothem": "4.2m" },
+    "hall": { "hull": ["tower"], "margin": "3m" },
+    "galleryEdge": { "offset": "tower", "by": "1.5m" }
+  },
+  "build": [
+    { "op": "roof", "name": "hallRoof", "plan": "hall", "type": "hallRoof", "eaves": "hallEaves", "slope": 40, "openings": ["tower"] },
+    { "op": "walls", "name": "hallWall", "plan": "hall", "type": "wall", "top": "hallEaves", "padding": { "left": "50mm", "right": "50mm" } },
+    { "op": "walls", "name": "towerWall", "plan": "tower", "type": "wall", "foot": { "on": "hallRoof", "offset": -10 }, "top": "towerTop" },
+    { "op": "dome", "name": "towerDome", "plan": "tower", "type": "dome", "base": "towerTop", "rise": "5.6m" },
+    { "op": "columns", "name": "towerColumns", "at": { "plan": "tower", "inset": "200mm" }, "profile": "column", "top": { "on": "hallRoof", "offset": -30 } },
+    { "op": "columns", "name": "hallColumns", "at": { "plan": "hall", "spacing": "5.6m", "inset": "250mm" }, "profile": "column", "top": "hallEaves" },
+    { "op": "arches", "name": "hallArches", "between": "hallColumns", "profile": "arch", "spring": "2.8m" },
+    { "op": "beams", "name": "eavesBeams", "between": "hallColumns", "profile": "beam", "level": "5.8m" },
+    { "op": "floor", "name": "galleryFloor", "plan": "galleryEdge", "type": "deck", "level": "gallery", "openings": ["tower"] },
+    { "op": "handrail", "name": "galleryRail", "type": "gallery", "along": { "plan": "galleryEdge", "level": "gallery" }, "railBeamDrop": "100mm" }
+  ]
+}

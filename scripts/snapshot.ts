@@ -4,13 +4,14 @@
  *   npm run snapshot:update   (re)write the snapshot files
  * Numbers are rounded to 9 decimals so the files are stable across platforms.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Model } from "../src/fem/types";
 import { buildCuritibaV2 } from "../src/models/curitibaV2";
 import { buildCrystalPalace } from "../src/models/crystalPalace";
 import { buildTestModel } from "../src/models/testModel";
+import { buildStructure } from "../src/json/build";
 
 const MODELS: Record<string, () => Model> = {
   curitibaV2: buildCuritibaV2,
@@ -18,7 +19,14 @@ const MODELS: Record<string, () => Model> = {
   testModel: buildTestModel,
 };
 
-const DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "snapshots");
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const DIR = join(ROOT, "snapshots");
+// Structure documents: one model per structures/<name>.json, snapshot "structure.<name>".
+const STRUCTURES = join(ROOT, "structures");
+for (const file of readdirSync(STRUCTURES).filter((f) => f.endsWith(".json")).sort()) {
+  const name = file.slice(0, -".json".length);
+  MODELS[`structure.${name}`] = () => buildStructure(JSON.parse(readFileSync(join(STRUCTURES, file), "utf8"))).model;
+}
 const update = process.argv.includes("--update");
 
 const round = (_key: string, value: unknown) =>

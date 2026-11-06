@@ -10,11 +10,13 @@
     "snapshot": "tsx scripts/snapshot.ts",
     "snapshot:update": "tsx scripts/snapshot.ts --update",
     "drawings": "tsx scripts/drawings.ts",
-    "ivy:texture": "tsx scripts/ivyLeafTexture.ts"
+    "ivy:texture": "tsx scripts/ivyLeafTexture.ts",
+    "structure": "tsx scripts/structure.ts"
   },
   "dependencies": {
     "@babylonjs/core": "^9.33.2",
-    "@babylonjs/materials": "^9.33.2"
+    "@babylonjs/materials": "^9.33.2",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "tsx": "^4.23.15",
