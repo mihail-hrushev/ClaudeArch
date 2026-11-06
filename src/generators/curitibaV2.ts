@@ -19,9 +19,9 @@ export type HandrailType = Omit<HandrailParams, "base" | "alongX" | "padding" | 
 /** Definition of the stairs; each gets its own position, and the walkway's handrail. */
 export type StairType = Omit<StairParams, "path" | "floor" | "height" | "arrival" | "handrail" | "color">;
 
-/** A column, arch, beam or deck of the ambulatory, and what it carries. */
+/** A column, arch or beam of the ambulatory, and what it carries. */
 export interface SupportDetail {
-  readonly role: "column" | "shaft" | "arch" | "beam" | "groundArch" | "eavesBeam" | "floorArch" | "floorBeam" | "walkArch" | "stairArch" | "deck";
+  readonly role: "column" | "shaft" | "arch" | "beam" | "groundArch" | "eavesBeam" | "floorArch" | "floorBeam" | "walkArch" | "stairArch";
   readonly element: Element;
   /** Ids of the supports it transmits its load to (columns stand on the ground). */
   readonly supportedBy: readonly string[];
@@ -53,9 +53,11 @@ export interface SupportDetail {
  * The ambulatory carries a walk floor over its inner half. Along each of those column lines a
  * horizontal beam runs from tower column to ground column, and an arch between the same columns
  * meets it from below at mid span, on the centre line of the ambulatory. The deck spans from the
- * tower columns out to that centre line, with a handrail section along both edges, their rail
- * beams carrying the deck between the floor beams. Between each two tower columns an arch meets
- * the rail beam of the inner edge from below at mid span.
+ * tower columns out to that centre line, one surface of ceramic tiles per bay between two floor
+ * beams, its main ribs spanning beam to beam under the tiles and a cut rib resting on every
+ * beam and edge; a handrail section runs along both edges, their rail beams carrying the deck
+ * edges between the floor beams. Between each two tower columns an arch meets the rail beam of
+ * the inner edge from below at mid span.
  *
  * A stair inside each side tower follows the octagon, close along three of its sides: lower flight,
  * platform around the corner, upper flight, and a platform around the next corner with a bridge
@@ -110,12 +112,14 @@ export interface CuritibaV2Params {
   readonly walkFloor: {
     /** Walking surface above the ground. */
     readonly height: number;
+    /** From the walking surface down to the top of the floor beams: the deck's tiles and ribs fill it. */
     readonly deckThickness: number;
     /** Horizontal beam from a tower column to a ground column. */
     readonly beam: Profile;
+    /** The deck: tiles on top, its structure below. Local Z of each bay points at its tower, X across. */
+    readonly deck: SurfaceType;
     readonly handrail: HandrailType;
     readonly stair: StairType;
-    readonly deckColor?: Vec3;
   };
   readonly color?: Vec3;
 }
@@ -139,7 +143,6 @@ const STAIR_SIDES: readonly (readonly [tower: number, sides: readonly [number, n
 const COLUMN_CLEARANCE = 5;
 /** Shorter pieces of a handrail between a column and a gap are left out. */
 const SHORTEST_SECTION = 10;
-const DECK_COLOR: Vec3 = [0.78, 0.76, 0.72];
 /** Longest straight piece of a roof beam. */
 const BEAM_SEGMENT = 25;
 /** Points along an arch where it is tested against its beam. */
@@ -541,13 +544,14 @@ export function curitibaV2(p: CuritibaV2Params): Instance & {
     const inner = columnCenter(column);
     return { column, wall, inner, middle: scale(add(inner, wall.center), 0.5), beam: `floor_beam_${column.id}` };
   });
-  const floorDetails = lines.flatMap(({ column, wall, inner, beam }): SupportDetail[] => {
+  const deckName = (i: number) => `walk_deck${(i + lines.length) % lines.length}`;
+  const floorDetails = lines.flatMap(({ column, wall, inner, beam }, i): SupportDetail[] => {
     const arch = `floor_arch_${column.id}`;
     const [fromTower, fromWall] = [towerShaft(column, wall.center), wallShaft(wall)];
     const spring = underDeck - 2 * floorHalf - archHalf - len(sub(fromWall.at, fromTower.at)) / 2;
     return [
       {
-        role: "floorBeam", supportedBy: [arch, column.id, wall.id], carries: [],
+        role: "floorBeam", supportedBy: [arch, column.id, wall.id], carries: [deckName(i - 1), deckName(i)],
         element: {
           id: beam, kind: "straight", start: add(inner, [0, 0, underDeck - floorHalf]), end: add(wall.center, [0, 0, underDeck - floorHalf]),
           profile: walk.beam, ...supportColor,
@@ -558,7 +562,9 @@ export function curitibaV2(p: CuritibaV2Params): Instance & {
   });
 
   // Walkway: one deck bay between each two neighbouring beams, around the towers. Its inner edge
-  // follows the tower columns, through the column where two towers touch.
+  // follows the tower columns, through the column where two towers touch. Each bay is a tiled
+  // surface facing up, cut to the bay outline, its tile grid centred on the bay and turned to its
+  // section: local Z from the middle of the bay towards the centre of its tower, X across.
   const columnClear = towerColumnRadius + 2 * archHalf + COLUMN_CLEARANCE;
   const joined = (a: Column, b: Column) => footBeams.some((f) => (f.a === a && f.b === b) || (f.a === b && f.b === a));
   const onWalk = (q: Vec3): Vec3 => [q[0], q[1], walk.height];
@@ -603,7 +609,11 @@ export function curitibaV2(p: CuritibaV2Params): Instance & {
   }
   const railBeam = walk.handrail.profiles.railBeam;
   const underEdge = underDeck - (railBeam ? 2 * Math.max(...railBeam.outline.map(([, z]) => Math.abs(z))) : 0);
-  const deckDetails = lines.map((a, i): SupportDetail => {
+  const deckMid = walk.height - walk.deck.tile.thickness / 2;
+  /** The tower a tower column belongs to (columns on the beam lines are never shared). */
+  const towerOf = (c: Column) => Number(/^tower(\d+)/.exec(c.carries[0])![1]);
+  const towerCenter = (t: number): Vec3 => [(t - 1) * spacing, 0, deckMid];
+  lines.forEach((a, i) => {
     const b = lines[(i + 1) % lines.length];
     const between = joined(a.column, b.column)
       ? []
@@ -639,13 +649,25 @@ export function curitibaV2(p: CuritibaV2Params): Instance & {
       const spring = underEdge - archHalf - len(sub(second.at, first.at)) / 2;
       walkArchDetails.push(archBetween(`walk_arch${i}_${j}`, "walkArch", first, second, spring, [name]));
     });
-    return {
-      role: "deck", supportedBy: [a.beam, b.beam], carries: [],
-      element: {
-        id: `walk_deck${i}`, kind: "plate", thickness: walk.deckThickness, color: walk.deckColor ?? DECK_COLOR,
-        corners: [a.middle, b.middle, ...innerEdge].map((q) => add(q, [0, 0, walk.height - walk.deckThickness / 2])),
-      },
-    };
+    // The bay outline, counter-clockwise in plan, as cuts of a block covering it. Local Z heads
+    // from the middle of the bay to the centre of its tower (between the two where the bay runs
+    // from one tower to the next), X = Z × up across the bay; the cuts along the beams give the
+    // ribs resting on them.
+    const outline = [a.middle, b.middle, ...innerEdge].map((q): Vec3 => [q[0], q[1], deckMid]);
+    const origin = scale(add(outline[0], outline[1]), 0.5);
+    const towers = [...new Set([towerOf(a.column), towerOf(b.column)])];
+    const z = normalize(towers.reduce((sum, t) => add(sum, normalize(sub(towerCenter(t), origin))), [0, 0, 0] as Vec3));
+    const x = cross(z, WORLD_Z);
+    const xs = outline.map((q) => dot(sub(q, origin), x));
+    const zs = outline.map((q) => dot(sub(q, origin), z));
+    const corner = (u: number, v: number) => add(add(origin, scale(x, u)), scale(z, v));
+    const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+    // Ribs stand on the joints of the centred tile grid, every `ribStep` from its middle.
+    blocks.push(glassSurface(deckName(i), {
+      ...colors, ...walk.deck, ribsOnGrid: true, facing: WORLD_Z,
+      base: corner(x0, z0), alongX: corner(x1, z0), alongZ: corner(x0, z1),
+      cuts: outline.map((q, j) => ({ point: q, normal: normalize(cross(WORLD_Z, sub(outline[(j + 1) % outline.length], q))) })),
+    }));
   });
 
   const shaftDetails = [...shafts.values()].map((q): SupportDetail => ({
@@ -654,7 +676,7 @@ export function curitibaV2(p: CuritibaV2Params): Instance & {
   }));
 
   const supports = [
-    ...columnDetails, ...wallColumnDetails, ...shaftDetails, ...archDetails, ...wallArchDetails, ...beamDetails, ...groundDetails, ...floorDetails, ...walkArchDetails, ...stairArchDetails, ...deckDetails,
+    ...columnDetails, ...wallColumnDetails, ...shaftDetails, ...archDetails, ...wallArchDetails, ...beamDetails, ...groundDetails, ...floorDetails, ...walkArchDetails, ...stairArchDetails,
   ];
 
   return {

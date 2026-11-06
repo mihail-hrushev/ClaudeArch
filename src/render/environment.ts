@@ -17,6 +17,9 @@ import { ImageProcessingConfiguration } from "@babylonjs/core/Materials/imagePro
 import { DefaultRenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline";
 import { SSAO2RenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline";
 import { setupDepthOfField } from "./depthOfField";
+import { createNightMode } from "./night";
+import type { Model } from "../fem/types";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import "@babylonjs/core/Rendering/geometryBufferRendererSceneComponent";
 import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
@@ -91,12 +94,25 @@ function sunVector(p: LightPreset): Vector3 {
   return new Vector3(Math.cos(el) * Math.cos(az), Math.cos(el) * Math.sin(az), Math.sin(el));
 }
 
+export type EnvironmentMode = "day" | "night";
+
 export interface Environment {
   shadows: ShadowGenerator;
-  /** Register model meshes: they cast shadows and glass picks up sky reflections. */
-  addModel(meshes: Mesh[]): void;
-  /** Switch to the next lighting preset. */
+  /**
+   * Register model meshes: they cast shadows and glass picks up sky reflections. The model
+   * itself places the night-mode interior lights (column lines, domes, wall columns).
+   */
+  addModel(meshes: Mesh[], model?: Model): void;
+  /**
+   * Meshes added by later layers (decoration) cast and receive the night shadows. Meshes
+   * created after addModel are picked up automatically; call this for ones created earlier.
+   */
+  addShadowCasters(meshes: AbstractMesh[]): void;
+  /** Switch to the next daylight preset (no effect while in night mode). */
   cycle(): void;
+  /** Current arrangement: "day" (the lighting presets) or "night" (see night.ts). */
+  readonly mode: EnvironmentMode;
+  setMode(mode: EnvironmentMode): void;
 }
 
 /**
@@ -104,6 +120,7 @@ export interface Environment {
  * Press "L" to cycle the lighting presets; "?light=dusk" etc. selects the initial one.
  * Press "O" to toggle ambient occlusion; "?ao=off" leaves it out altogether.
  * Press "B" to toggle the depth of field; "?dof=off" starts with it off.
+ * Press "N" to toggle night mode; "?mode=night" starts with it (see night.ts).
  * The default is the HDRI sky; glass reflects whichever sky is shown through the probe.
  */
 export function createEnvironment(scene: Scene, orbit: ArcRotateCamera, fly: Camera): Environment {
@@ -243,6 +260,9 @@ export function createEnvironment(scene: Scene, orbit: ArcRotateCamera, fly: Cam
   ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
   setupDepthOfField(scene, pipeline, orbit);
 
+  // --- Night mode: overrides the lights, sky, ground, probe and pipeline set up above ---
+  const night = createNightMode({ scene, hemi, sun, sunShadows: shadows, skybox, pipeline, base, baseMat, grid, catcherMat });
+
   function apply(p: LightPreset) {
     const toSun = sunVector(p);
     sun.direction = toSun.negate();
@@ -272,24 +292,43 @@ export function createEnvironment(scene: Scene, orbit: ArcRotateCamera, fly: Cam
     shadowMap.resetRefreshCounter();
   }
 
-  const requested = new URLSearchParams(location.search).get("light");
+  const params = new URLSearchParams(location.search);
+  const requested = params.get("light");
   let index = Math.max(0, PRESETS.findIndex((p) => p.name.replace(" ", "") === requested?.replace(/[\s-]/g, "")));
   if (requested === null) index = PRESETS.length - 1; // the HDRI sky by default
   apply(PRESETS[index]);
 
+  let mode: EnvironmentMode = "day";
+  const setMode = (m: EnvironmentMode) => {
+    mode = m;
+    if (m === "night") {
+      night.enable();
+    } else {
+      night.disable();
+      apply(PRESETS[index]);
+    }
+  };
+  if (params.get("mode") === "night") setMode("night");
+
   const cycle = () => {
     index = (index + 1) % PRESETS.length;
-    apply(PRESETS[index]);
+    if (mode === "day") apply(PRESETS[index]);
   };
   window.addEventListener("keydown", (e) => {
     if (e.key === "l" || e.key === "L") cycle();
+    if (e.key === "n" || e.key === "N") setMode(mode === "night" ? "day" : "night");
     if ((e.key === "o" || e.key === "O") && ao) ao.totalStrength = ao.totalStrength > 0 ? 0 : AO_STRENGTH;
   });
 
   return {
     shadows,
     cycle,
-    addModel(meshes) {
+    get mode() {
+      return mode;
+    },
+    setMode,
+    addShadowCasters: (meshes) => night.addShadowCasters(meshes),
+    addModel(meshes, model) {
       for (const mesh of meshes) {
         const mat = mesh.material;
         if (!(mat instanceof StandardMaterial)) continue;
@@ -306,6 +345,7 @@ export function createEnvironment(scene: Scene, orbit: ArcRotateCamera, fly: Cam
         }
       }
       shadowMap.resetRefreshCounter();
+      night.addModel(meshes, model);
     },
   };
 }

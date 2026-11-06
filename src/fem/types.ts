@@ -72,6 +72,12 @@ export interface PlateElement extends ElementBase {
   readonly alpha?: number;
   /** Glass: share of the sky reflected when looking straight at it, 0 … 1 (default 0.08). */
   readonly reflection?: number;
+  /**
+   * Facets around the top face (the +normal side), e.g. a ceramic tile: the top is inset by
+   * `width` and a sloped strip `depth` deep runs down from it to the plate's edge. Pieces too
+   * small for the inset get a smaller one, or none.
+   */
+  readonly bevel?: { readonly width: number; readonly depth: number };
 }
 
 export type Element = Member | PlateElement;

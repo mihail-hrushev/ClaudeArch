@@ -9,6 +9,7 @@ import { createAxes } from "./render/axes";
 import { createEnvironment } from "./render/environment";
 import { createSpectator } from "./render/spectator";
 import { createStatsOverlay } from "./render/stats";
+import { installIvyToggle } from "./render/ivyLayer";
 import type { View } from "./models/view";
 import { buildCuritibaV2, curitibaV2View } from "./models/curitibaV2";
 import { buildTestModel, testView } from "./models/testModel";
@@ -34,6 +35,9 @@ function selectModel(): ModelEntry {
 
 /** World convention: right-handed, Z up (same coordinates as the FEM model). */
 export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
+  // Plain uniforms instead of uniform buffers: Babylon declares one buffer per light, and WebGL
+  // on D3D11 allows ~12 blocks per shader, which would cap the night mode at ~9 lights per mesh.
+  engine.disableUniformBuffers = true;
   const scene = new Scene(engine);
   scene.useRightHandedSystem = true;
   // No hover interaction yet: skip ray-picking all triangles on every mouse move.
@@ -54,11 +58,15 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): Scene {
   // First-person fly camera: "C" toggles, WASD moves, mouse looks.
   const spectator = createSpectator(scene, canvas, camera);
 
-  // Sky, sun with soft shadows, fog, reflections and post-processing ("L" cycles the light).
+  // Sky, sun with soft shadows, fog, reflections and post-processing ("L" cycles the light,
+  // "N" toggles night mode, also "?mode=night").
   const environment = createEnvironment(scene, camera, spectator.camera);
 
   createAxes(scene);
-  environment.addModel(buildModel(entry.build(), scene));
+  const model = entry.build();
+  environment.addModel(buildModel(model, scene), model);
+  // Ivy decoration layer (src/render/ivyLayer.ts): "?ivy=1" grows it at start-up, "I" toggles it.
+  installIvyToggle(scene, model, environment);
 
   createStatsOverlay(scene);
 

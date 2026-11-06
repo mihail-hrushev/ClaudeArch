@@ -11,6 +11,14 @@ const mm = (v: number) => v / 10;
 /** Glass shared by all the surface types of Curitiba v2. */
 const V2_GLASS = { thickness: 1.2, gap: 1.5, alpha: 0.5, reflection: 0.5, align: "middle-center" as const };
 
+/** Walk floor: from the walking surface down to the floor beams. */
+const DECK_THICKNESS = 10;
+/** Ceramic tiles of the walk floor: 300 x 300 mm, faceted, with a grout seam, centred in each bay. */
+const DECK_TILE = {
+  width: 30, length: 30, thickness: 1.2, gap: 0.4, alpha: 1, reflection: 0.15, align: "middle-center" as const,
+  color: [0.86, 0.78, 0.66] as const, bevel: { width: 0.6, depth: 0.15 },
+};
+
 /** Handrail heights, spacing and sections, in scene units. */
 const HANDRAIL = () => ({
   height: mm(1100), middleHeight: mm(600), kickHeight: mm(150), postStep: mm(1500),
@@ -47,8 +55,17 @@ export function buildCuritibaV2(): Model {
       roofBeam: rectangleProfile(12, 24), eavesBeam: rectangleProfile(12, 24),
     },
     walkFloor: {
-      height: 360, deckThickness: 10, beam: rectangleProfile(12, 24), stair: STAIR(),
+      height: 360, deckThickness: DECK_THICKNESS, beam: rectangleProfile(12, 24), stair: STAIR(),
       handrail: { ...HANDRAIL(), profiles: { ...HANDRAIL().profiles, railBeam: rectangleProfile(12, 24) } },
+      deck: {
+        ribStep: 90,
+        tile: DECK_TILE,
+        profiles: {
+          // The ribs reach down from the tiles exactly to the floor beams.
+          mainRib: rectangleProfile(5, DECK_THICKNESS - DECK_TILE.thickness),
+          horizontalFrame: rectangleProfile(3, 6), verticalFrame: rectangleProfile(3, 6),
+        },
+      },
     },
     surfaces: {
       towerWall: {

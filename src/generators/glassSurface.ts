@@ -1,4 +1,4 @@
-import type { Element } from "../fem/types";
+import type { Element, PlateElement } from "../fem/types";
 import type { Profile } from "../fem/profiles";
 import { type Instance, type LocalFrame, frameFromUp } from "../fem/placement";
 import { type Vec3, add, sub, scale, dot, cross, len, normalize } from "../fem/vec";
@@ -21,7 +21,8 @@ import { type Vec3, add, sub, scale, dot, cross, len, normalize } from "../fem/v
  * as X allows). The section is the circle through the base and `alongZ` with `tangent` at the
  * base, swept along X. Looking at the surface with X to the right and Z up you see the glass,
  * the structure stands behind it, towards +Y. The reference surface is the glass mid-surface;
- * frames and ribs sit with their front faces on the back of the glass.
+ * frames and ribs sit with their front faces on the back of the glass. `facing` turns the
+ * frame instead, e.g. up for a floor with its structure underneath.
  *
  * `cuts` trim the block to any outline and `openings` take convex holes out of it: tiles are
  * clipped, frames and ribs shortened, and a main rib is generated along every cut and around
@@ -66,6 +67,12 @@ export interface GlassSurfaceParams {
    * `alongZ` gives a flat surface. Must have no X component (curved in one direction only).
    */
   readonly tangent?: Vec3;
+  /**
+   * Direction the glass faces at the base, away from the structure: sets local −Y, and Z = X × Y
+   * (its X component is dropped). Default: horizontal, Y = global Z × X, for an upright
+   * surface. Global Z makes a floor with the tiles on top and the structure hanging below.
+   */
+  readonly facing?: Vec3;
   /** Planes trimming the surface; each generates a main rib along the cut. */
   readonly cuts?: readonly CutPlane[];
   /**
@@ -82,6 +89,12 @@ export interface GlassSurfaceParams {
   readonly ribStep: number;
   /** Explicit main rib positions along X between the two edges (replaces `ribStep`). */
   readonly ribStations?: readonly number[];
+  /**
+   * Main ribs on the tile grid: with `tile.align` set, the ribs stand on the column joints of
+   * the aligned grid nearest to every `ribStep` from its anchor (the joint nearest the centre
+   * for a centred grid), so no rib divides a tile. Without `tile.align` it has no effect.
+   */
+  readonly ribsOnGrid?: boolean;
   readonly tile: {
     /** Along X. */
     readonly width: number;
@@ -98,6 +111,8 @@ export interface GlassSurfaceParams {
     readonly alpha?: number;
     /** Share of the sky reflected when looking straight at the glass (see PlateElement). */
     readonly reflection?: number;
+    /** Facets around every tile's face, e.g. ceramic tiles (see PlateElement). */
+    readonly bevel?: PlateElement["bevel"];
   };
   /** Profiles: local y along the surface, local z through its depth (towards the structure). */
   readonly profiles: {
@@ -224,6 +239,27 @@ function gridLines(lo: number, hi: number, step: number, anchor: "start" | "cent
   return [lo, ...Array.from({ length: whole + 1 }, (_, i) => first + i * step), hi];
 }
 
+/**
+ * Rib stations inside 0 … width on the grid joints: from the anchor joint, the joint nearest to
+ * every multiple of `step` in both directions (the grid's outer lines are its extent, not joints).
+ */
+function ribsOnGrid(lines: readonly number[], width: number, step: number, anchor: "start" | "center" | "end", tol: number): number[] {
+  const joints = lines.slice(1, -1);
+  if (!joints.length) return [];
+  const middle = (lines[0] + lines[lines.length - 1]) / 2;
+  const origin = anchor === "start" ? lines[0] : anchor === "end" ? lines[lines.length - 1] : joints.reduce((best, x) => (Math.abs(x - middle) < Math.abs(best - middle) ? x : best));
+  const nearest = (x: number) => joints.reduce((best, j) => (Math.abs(j - x) < Math.abs(best - x) ? j : best));
+  const stations: number[] = [];
+  for (const sign of [-1, 1]) {
+    for (let k = sign > 0 && anchor !== "end" && anchor !== "start" ? 0 : 1; ; k++) {
+      const target = origin + sign * k * step;
+      if (target < lines[0] - step / 2 || target > lines[lines.length - 1] + step / 2) break;
+      stations.push(nearest(target));
+    }
+  }
+  return distinct(stations, tol).filter((x) => x > tol && x < width - tol);
+}
+
 /** Sorted values, those closer than `tol` merged. */
 const distinct = (values: readonly number[], tol: number) =>
   [...values].sort((a, b) => a - b).filter((v, i, all) => i === 0 || v - all[i - 1] > tol);
@@ -237,6 +273,16 @@ const point = (x: number, [y, z]: P2, [ny, nz]: P2 = [0, 0], offset = 0): Vec3 =
 /** A plane in the block's local frame with a unit normal, and the id of the rib along it. */
 interface Boundary extends CutPlane {
   readonly id: string;
+}
+
+/** Local base frame of the block: from global Z, or turned to face `facing`. */
+function baseFrame(p: Pick<GlassSurfaceParams, "base" | "alongX" | "facing">): LocalFrame {
+  if (!p.facing) return frameFromUp(p.base, p.alongX);
+  const x = normalize(sub(p.alongX, p.base));
+  const away = sub(p.facing, scale(x, dot(p.facing, x)));
+  if (len(away) < 1e-9 * len(p.facing)) throw new Error("glassSurface: facing must not lie along X");
+  const y = normalize(scale(away, -1));
+  return { origin: p.base, x, y, z: cross(x, y) };
 }
 
 const localPlane = (c: CutPlane, f: LocalFrame, id: string): Boundary => {
@@ -398,7 +444,7 @@ function withPadding(p: GlassSurfaceParams): GlassSurfaceParams {
   const pad = typeof p.padding === "number"
     ? { left: p.padding, right: p.padding, bottom: p.padding, top: p.padding }
     : { left: 0, right: 0, bottom: 0, top: 0, ...p.padding };
-  const frame = frameFromUp(p.base, p.alongX);
+  const frame = baseFrame(p);
   const width = len(sub(p.alongX, p.base));
   const up = sub(p.alongZ, p.base);
   const section = sectionOf([dot(up, frame.y), dot(up, frame.z)], p.tangent ?? [0, 0, 1]);
@@ -436,14 +482,13 @@ export function glassSurface(name: string, params: GlassSurfaceParams): GlassSur
   if (p.ribStep <= 0 || tile.width <= 0 || tile.length <= 0) {
     throw new Error("glassSurface: rib step and tile size must be > 0");
   }
-  const frame = frameFromUp(p.base, p.alongX);
+  const frame = baseFrame(p);
   const width = len(sub(p.alongX, p.base));
   const top = sub(p.alongZ, p.base);
   const tangent = p.tangent ?? [0, 0, 1];
   const section = sectionOf([dot(top, frame.y), dot(top, frame.z)], tangent);
   const fit = tile.fit ?? "cut";
 
-  const ribX = p.ribStations ? [0, ...p.ribStations, width] : stations(width, p.ribStep, "cut");
   const details: GlassDetail[] = [];
 
   const ribColor = p.ribColor ?? RIB_COLOR;
@@ -476,6 +521,11 @@ export function glassSurface(name: string, params: GlassSurfaceParams): GlassSur
   const columnLines = extent
     ? gridLines(extent.x0, extent.x1, tile.width, alignX === "left" ? "start" : alignX === "right" ? "end" : "center", fit)
     : null;
+  const ribX = p.ribStations
+    ? [0, ...p.ribStations, width]
+    : p.ribsOnGrid && columnLines
+      ? [0, ...ribsOnGrid(distinct(columnLines, tol), width, p.ribStep, alignX === "left" ? "start" : alignX === "right" ? "end" : "center", tol), width]
+      : stations(width, p.ribStep, "cut");
 
   /** Inside the cuts and outside the openings; margin > 0 also rejects points on a boundary. */
   const kept = (q: Vec3, margin: number) =>
@@ -670,6 +720,7 @@ export function glassSurface(name: string, params: GlassSurfaceParams): GlassSur
           element: {
             id: pieceId(`tile_b${bay}_c${col}_r${row}`, piece), kind: "plate", thickness: tile.thickness, corners,
             color: tile.color ?? GLASS_COLOR, alpha: tile.alpha ?? 0.3, reflection: tile.reflection,
+            ...(tile.bevel ? { bevel: tile.bevel } : {}),
           },
         }));
       }

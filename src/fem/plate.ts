@@ -15,10 +15,38 @@ export function plateNormal(c: readonly Vec3[]): Vec3 {
   return normalize([nx, ny, nz]);
 }
 
+/** How often the bevel width is halved for a piece too small to take it, before it is dropped. */
+const BEVEL_RETRIES = 6;
+
+/**
+ * Convex polygon with every edge moved in by `width`, or null when the edges would cross
+ * (an edge reversing or vanishing).
+ */
+function insetPolygon(c: readonly Vec3[], n: Vec3, width: number): Vec3[] | null {
+  const m = c.length;
+  const inward = c.map((p, i) => normalize(cross(n, sub(c[(i + 1) % m], p))));
+  const inset = c.map((p, i) => {
+    const a = inward[(i + m - 1) % m];
+    const b = inward[i];
+    const k = 1 + dot(a, b);
+    return k < 1e-6 ? null : add(p, scale(add(a, b), width / k));
+  });
+  if (inset.some((q) => q === null)) return null;
+  const q = inset as Vec3[];
+  for (let i = 0; i < m; i++) {
+    const j = (i + 1) % m;
+    const edge = sub(q[j], q[i]);
+    if (dot(edge, sub(c[j], c[i])) <= 0 || len(edge) <= 1e-9) return null;
+  }
+  return q;
+}
+
 /**
  * Solid of a plate: mid-surface polygon extruded ±thickness/2 along its normal. Flat shaded.
  * Texture uvs: faces use a planar frame with origin corner 0 and u along edge 0 → 1;
  * sides use (distance along the edge, distance through the thickness).
+ * With `bevel` the top face is inset by its width and a sloped strip of its depth runs round
+ * it down to the edge; top and strips share the planar uvs, the sides end under the strips.
  */
 export function plateSolid(plate: PlateElement): MeshData {
   const c = plate.corners;
@@ -41,11 +69,31 @@ export function plateSolid(plate: PlateElement): MeshData {
   // In-plane frame of the mid-surface (h ∥ n, so top and bottom share the corners' uvs).
   const ue = normalize(sub(c[1], c[0]));
   const ve = cross(n, ue);
-  const planar = c.map((p): [number, number] => {
+  const uv = (p: Vec3): [number, number] => {
     const r = sub(p, c[0]);
     return [dot(r, ue) / UV_UNIT, dot(r, ve) / UV_UNIT];
-  });
+  };
+  const planar = c.map(uv);
   const t = plate.thickness / UV_UNIT;
+
+  const facets = plate.bevel && bevelOf(c, n, plate.bevel, plate.thickness);
+  if (facets) {
+    const { inset, depth } = facets;
+    const rim = c.map((p) => add(p, scale(n, plate.thickness / 2 - depth)));
+    const crest = inset.map((p) => add(p, h));
+    polygon(crest, n, crest.map(uv));
+    polygon([...bot].reverse(), scale(n, -1), [...planar].reverse());
+    const tr = (plate.thickness - depth) / UV_UNIT;
+    for (let i = 0; i < c.length; i++) {
+      const j = (i + 1) % c.length;
+      const strip = [rim[i], rim[j], crest[j], crest[i]];
+      polygon(strip, normalize(cross(sub(strip[1], strip[0]), sub(strip[3], strip[0]))), strip.map(uv));
+      const side = normalize(cross(sub(c[j], c[i]), n));
+      const l = len(sub(c[j], c[i])) / UV_UNIT;
+      polygon([bot[i], bot[j], rim[j], rim[i]], side, [[0, 0], [l, 0], [l, tr], [0, tr]]);
+    }
+    return mesh;
+  }
 
   polygon(top, n, planar);
   polygon([...bot].reverse(), scale(n, -1), [...planar].reverse());
@@ -56,4 +104,16 @@ export function plateSolid(plate: PlateElement): MeshData {
     polygon([bot[i], bot[j], top[j], top[i]], side, [[0, 0], [l, 0], [l, t], [0, t]]);
   }
   return mesh;
+}
+
+/** The inset top outline of a bevelled plate, with the width halved until the piece takes it; null if never. */
+function bevelOf(c: readonly Vec3[], n: Vec3, bevel: NonNullable<PlateElement["bevel"]>, thickness: number) {
+  const depth = Math.min(bevel.depth, thickness);
+  if (!(bevel.width > 0) || !(depth > 0)) return null;
+  let width = bevel.width;
+  for (let i = 0; i <= BEVEL_RETRIES; i++, width /= 2) {
+    const inset = insetPolygon(c, n, width);
+    if (inset) return { inset, depth };
+  }
+  return null;
 }

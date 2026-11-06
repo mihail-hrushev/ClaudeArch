@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "snapshot": "tsx scripts/snapshot.ts",
     "snapshot:update": "tsx scripts/snapshot.ts --update",
-    "drawings": "tsx scripts/drawings.ts"
+    "drawings": "tsx scripts/drawings.ts",
+    "ivy:texture": "tsx scripts/ivyLeafTexture.ts"
   },
   "dependencies": {
     "@babylonjs/core": "^9.33.2",
