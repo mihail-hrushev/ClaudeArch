@@ -269,6 +269,12 @@ export const StructureDocument = z.object({
   description: z.string().optional(),
   /** Default colour of ribs, frames and supports. */
   color: Color.optional(),
+  /**
+   * With these (0 … 1) every member is a physically based material exactly as in glTF, e.g. black
+   * ironwork: `color` is then linear (glTF baseColorFactor) and the members are lit by the HDRI sky.
+   */
+  metallic: Num.min(0).max(1).optional(),
+  roughness: Num.min(0).max(1).optional(),
   view: View.optional(),
   profiles: z.record(ProfileSpec).optional(),
   /** Glass materials, referenced by name from glass presets, tiles and window glass. */

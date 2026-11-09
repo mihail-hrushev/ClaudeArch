@@ -52,7 +52,9 @@ function batchOf(el: Element): Omit<Batch, "data"> {
   }
   // Smooth (round) profiles: skip facet lines (30° for 12 segments), keep caps / sharp joints.
   const edges = el.profile.smooth ? 0.8 : 0.95;
-  return { key: `member|${color.join(",")}|${edges}${texKey}`, color, alpha: 1, edges, texture };
+  const pbr = el.metallic !== undefined || el.roughness !== undefined ? { metallic: el.metallic ?? 0, roughness: el.roughness ?? 1 } : undefined;
+  const pbrKey = pbr ? `|pbr:${pbr.metallic},${pbr.roughness}` : "";
+  return { key: `member|${color.join(",")}|${edges}${pbrKey}${texKey}`, color, alpha: 1, edges, pbr, texture };
 }
 
 function append(target: MeshData, src: MeshData) {
@@ -72,8 +74,8 @@ function pbrMaterial(scene: Scene, b: Batch & { pbr: NonNullable<Batch["pbr"]> }
   if (b.emissive) mat.emissiveColor = new Color3(b.emissive[0], b.emissive[1], b.emissive[2]);
   mat.alpha = b.alpha;
   if (b.alpha < 1) mat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-  // Single-sided, as glTF materials are by default: a pane is a thin solid, so drawing its back
-  // faces too would count every pane twice (twice the opacity and glow) and turn the glass milky.
+  // Single-sided, as glTF materials are by default: panes and bars are closed solids, and drawing a
+  // pane's back faces too would count it twice (twice the opacity and glow) and turn the glass milky.
   mat.backFaceCulling = true;
   return mat;
 }

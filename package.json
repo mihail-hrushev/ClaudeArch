@@ -12,7 +12,8 @@
     "drawings": "tsx scripts/drawings.ts",
     "ivy:texture": "tsx scripts/ivyLeafTexture.ts",
     "structure": "tsx scripts/structure.ts",
-    "glb": "tsx scripts/glb.ts"
+    "glb": "tsx scripts/glb.ts",
+    "hdr:cap": "tsx scripts/hdrCap.ts"
   },
   "dependencies": {
     "@babylonjs/core": "^9.33.2",

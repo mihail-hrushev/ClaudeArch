@@ -522,7 +522,7 @@ export function createNightMode(rig: NightRig): NightMode {
 
   // --- Mode switch ---
   const saved = {
-    samples: 0, fxaa: false, bloomThreshold: 0, bloomWeight: 0, bloomKernel: 0, bloomScale: 0, contrast: 0, vignette: 0,
+    samples: 0, fxaa: false, bloom: false, bloomThreshold: 0, bloomWeight: 0, bloomKernel: 0, bloomScale: 0, contrast: 0, vignetteOn: false, vignette: 0,
     skyMaterial: null as Material | null, shadowDarkness: 0, shadowQuality: 0, shadowBias: 0, shadowNormalBias: 0,
     baseReceives: false, catcherLight: catcherMat.activeLight, catcherAlpha: 0, fogDensity: 0, gridLine: grid.lineColor,
   };
@@ -534,8 +534,8 @@ export function createNightMode(rig: NightRig): NightMode {
     if (!lamps.length && model) buildLights();
 
     Object.assign(saved, {
-      samples: pipeline.samples, fxaa: pipeline.fxaaEnabled, bloomThreshold: pipeline.bloomThreshold, bloomWeight: pipeline.bloomWeight,
-      bloomKernel: pipeline.bloomKernel, bloomScale: pipeline.bloomScale, contrast: ip.contrast, vignette: ip.vignetteWeight,
+      samples: pipeline.samples, fxaa: pipeline.fxaaEnabled, bloom: pipeline.bloomEnabled, bloomThreshold: pipeline.bloomThreshold, bloomWeight: pipeline.bloomWeight,
+      bloomKernel: pipeline.bloomKernel, bloomScale: pipeline.bloomScale, contrast: ip.contrast, vignetteOn: ip.vignetteEnabled, vignette: ip.vignetteWeight,
       skyMaterial: skybox.material, shadowDarkness: sunShadows.darkness, shadowQuality: sunShadows.filteringQuality,
       shadowBias: sunShadows.bias, shadowNormalBias: sunShadows.normalBias, baseReceives: base.receiveShadows,
       catcherLight: catcherMat.activeLight, catcherAlpha: catcherMat.alpha, fogDensity: scene.fogDensity, gridLine: grid.lineColor,
@@ -570,12 +570,14 @@ export function createNightMode(rig: NightRig): NightMode {
     // Post-processing for a dark scene: bloom on fixtures and highlights, MSAA 8 + FXAA, more contrast.
     pipeline.samples = 8;
     pipeline.fxaaEnabled = true;
+    pipeline.bloomEnabled = true;
     pipeline.bloomThreshold = 0.55;
     pipeline.bloomWeight = 0.4;
     pipeline.bloomKernel = 64;
     pipeline.bloomScale = 0.5;
     ip.exposure = NIGHT.exposure;
     ip.contrast = NIGHT.contrast;
+    ip.vignetteEnabled = true;
     ip.vignetteWeight = 2.4;
 
     for (const l of lamps) {
@@ -604,11 +606,13 @@ export function createNightMode(rig: NightRig): NightMode {
     skybox.material = saved.skyMaterial;
     pipeline.samples = saved.samples;
     pipeline.fxaaEnabled = saved.fxaa;
+    pipeline.bloomEnabled = saved.bloom;
     pipeline.bloomThreshold = saved.bloomThreshold;
     pipeline.bloomWeight = saved.bloomWeight;
     pipeline.bloomKernel = saved.bloomKernel;
     pipeline.bloomScale = saved.bloomScale;
     ip.contrast = saved.contrast;
+    ip.vignetteEnabled = saved.vignetteOn;
     ip.vignetteWeight = saved.vignette;
     sunShadows.darkness = saved.shadowDarkness;
     sunShadows.filteringQuality = saved.shadowQuality;

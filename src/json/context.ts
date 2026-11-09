@@ -552,6 +552,14 @@ export class BuildContext {
 
   /** The finished model: instances assembled, duplicates of shared members removed. */
   model(): Model {
-    return removeDuplicateMembers({ elements: [...assemble(this.instances).elements, ...this.elements] });
+    const model = removeDuplicateMembers({ elements: [...assemble(this.instances).elements, ...this.elements] });
+    const { metallic, roughness } = this.doc;
+    if (metallic === undefined && roughness === undefined) return model;
+    // The document's finish for every member without one of its own.
+    const finish = { metallic: metallic ?? 0, roughness: roughness ?? 1 };
+    return {
+      ...model,
+      elements: model.elements.map((el) => (el.kind === "plate" || el.metallic !== undefined || el.roughness !== undefined ? el : { ...el, ...finish })),
+    };
   }
 }

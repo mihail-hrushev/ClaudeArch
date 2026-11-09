@@ -501,6 +501,9 @@ export const band = defineOperator({
     /** Move the band's centre line into the plan. */
     inset: Length.optional(),
     color: Color.optional(),
+    /** Its own physically based look (0 … 1), e.g. matte masonry under a document of black ironwork; `color` is then linear. */
+    metallic: Num.min(0).max(1).optional(),
+    roughness: Num.min(0).max(1).optional(),
   }).strict(),
   run(ctx, p, path) {
     const plan = ctx.plan(p.plan, `${path}.plan`);
@@ -508,6 +511,7 @@ export const band = defineOperator({
     const [z0, z1] = p.z.map((v, i) => ctx.length(v, `${path}.z[${i}]`));
     const inset = ctx.optionalLength(p.inset, `${path}.inset`) ?? 0;
     const color = p.color ?? ctx.color;
+    const finish = p.metallic !== undefined || p.roughness !== undefined ? { metallic: p.metallic ?? 0, roughness: p.roughness ?? 1 } : {};
     const sides = plan.sides;
     const n = sides.length;
     const selected = selectedSides(sides, p.sides);
@@ -517,7 +521,7 @@ export const band = defineOperator({
       const after = sides[(k + 1) % n];
       const run = (q: Vec3, by: number) => add(add(q, scale(s.along, by)), scale(s.inward, inset));
       ctx.addElement({
-        id: `${p.name}${k}`, kind: "straight", profile: rectangleProfile(thickness, z1 - z0), ...(color ? { color } : {}),
+        id: `${p.name}${k}`, kind: "straight", profile: rectangleProfile(thickness, z1 - z0), ...(color ? { color } : {}), ...finish,
         start: lifted(run(s.a, -miter(before)), (z0 + z1) / 2), end: lifted(run(s.b, miter(after)), (z0 + z1) / 2),
       });
     }

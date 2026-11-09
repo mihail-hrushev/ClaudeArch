@@ -17,6 +17,9 @@ interface MemberBase extends ElementBase {
   readonly start: Vec3;
   readonly end: Vec3;
   readonly profile: Profile;
+  /** Physically based look as in glTF (0 … 1), e.g. painted or bare metal; with these `color` is linear. */
+  readonly metallic?: number;
+  readonly roughness?: number;
   /**
    * Reference vector for the profile's local z axis at the start node.
    * Defaults: straight -> world Z (world X for vertical members);

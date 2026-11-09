@@ -1,7 +1,7 @@
 {
   "name": "curitiba",
   "description": "Curitiba Botanical Garden style greenhouse: three octagonal domed towers touching corner to corner on a glazed ground floor with a curved roof, an ambulatory of columns and arches around them carrying a walk floor reached by stairs.",
-  "color": [0.97, 0.97, 0.95],
+  "color": [0, 0, 0], "metallic": 0.95, "roughness": 0.05,
   "view": { "target": [0, 0, 600], "radius": 3900, "alpha": 127.24, "beta": 72 },
   "profiles": {
     "rib": { "rect": ["50mm", "140mm"] },
@@ -19,8 +19,12 @@
     "kickRail": { "rect": ["10mm", "120mm"] },
     "stringer": { "rect": ["60mm", "240mm"] }
   },
+  "materials": {
+    "blueGlass2": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [1, 0.5, 0] },
+    "blueGlass": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [0.3, 0.3, 0.3] }
+  },
   "glass": {
-    "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "gap": "15mm", "alpha": 0.5, "reflection": 0.5, "align": "middle-center" },
+    "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "material": "blueGlass", "align": "middle-center" },
     "ceramic": { "width": "300mm", "length": "300mm", "thickness": "12mm", "gap": "4mm", "alpha": 1, "reflection": 0.15, "align": "middle-center",
                  "color": [0.86, 0.78, 0.66], "bevel": { "width": "6mm", "depth": "1.5mm" } }
   },

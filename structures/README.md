@@ -44,6 +44,7 @@ the layout engine, the surface types are the stylesheet.
 {
   "name": "pavilion",
   "color": [0.97, 0.97, 0.95],                       // default colour of ribs, frames, supports
+  "metallic": 0.95, "roughness": 0.05,                // optional: every member a glTF metal (color then linear), e.g. [0, 0, 0] for black ironwork
   "view": { "target": [0, 0, 500], "radius": 3200, "alpha": 125, "beta": 70 },   // degrees
   "profiles": { "rib": { "rect": ["50mm", "140mm"] }, "column": { "circle": "150mm" }, "post": { "square": "60mm" } },   // also { "regular": 6, "radius": … }: flat sides
   "materials": {                                      // glass looks: color, alpha (0 invisible … 1 opaque),
@@ -123,7 +124,7 @@ bays divide the width), `ribsOnGrid` (true: main ribs on the tile joints nearest
 | `slab` | a plate covering a plan outline | `plan`, `level`, `thickness`, `color?` |
 | `pyramid` | solid plates from the sides of a plan up to an apex over its centre: a lantern roof, a spire | `plan`, `base` (height), `apex`, `thickness`, `color?` |
 | `box` | an axis-aligned solid block | `x`, `y`, `z` ranges, `color?` |
-| `band` | a mitred band along the sides of a plan: plinth, frieze, cornice | `plan`, `thickness`, `z`, `inset?`, `color?` |
+| `band` | a mitred band along the sides of a plan: plinth, frieze, cornice | `plan`, `thickness`, `z`, `inset?`, `color?`, `metallic?`, `roughness?` (its own glTF look, e.g. matte masonry in a document of black ironwork) |
 | `outline` | a new plan outline from columns, points or a cut outline | `columns?` / `points?` / `plan?` + `cuts?`, `towards?` + `share?` (corners moved a share of the way to the nearest column of a result, e.g. the centre line between two column rings) |
 | `handrail` | handrail sections along plan sides or between two points | `type`, `along` (`{plan, sides?, level, inward?}` / `{from, to}`), `padding?`, `railBeamDrop?`, `gaps?` (points results, e.g. stairs, marking stretches left open) |
 | `stair` | a stair along a centre line; leaves a points result marking where it arrives | `type`, `path`, `floor?`, `height`, `landing?` (`"bend"`: the middle platform centred on the first bend), `arrival?` (`{length?, exit?: {side, length?, reach, column, arch?}}`: a way off the arrival beside a column, the column's quarter arches carrying it) |
