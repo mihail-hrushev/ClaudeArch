@@ -113,6 +113,9 @@ export interface GlassSurfaceParams {
     readonly alpha?: number;
     /** Share of the sky reflected when looking straight at the glass (see PlateElement). */
     readonly reflection?: number;
+    readonly emissive?: Vec3;
+    readonly metallic?: number;
+    readonly roughness?: number;
     /** Facets around every tile's face, e.g. ceramic tiles (see PlateElement). */
     readonly bevel?: PlateElement["bevel"];
   };
@@ -214,6 +217,32 @@ function sectionOf(top: P2, tangent: Vec3): Section {
     normal: (s) => [Math.cos(heading(s)), -Math.sin(heading(s))],
     arcOfChord: (chord) => (2 * Math.asin(Math.min(1, (chord * Math.abs(k)) / 2))) / Math.abs(k),
   };
+}
+
+/**
+ * The top of a surface whose section continues `run` further along local Y past `alongZ`, on the
+ * same circle (the one through the base and `alongZ` with `tangent` there); a line goes straight on.
+ */
+export function extendedTop(p: Pick<GlassSurfaceParams, "base" | "alongX" | "alongZ" | "tangent" | "facing">, run: number): Vec3 {
+  const frame = baseFrame(p);
+  const up = sub(p.alongZ, p.base);
+  const section = sectionOf([dot(up, frame.y), dot(up, frame.z)], p.tangent ?? [0, 0, 1]);
+  const target = section.at(section.length)[0] + run;
+  // Arc length where the section reaches the target run: y grows along the section until it turns back.
+  let lo = 0;
+  let hi = section.length;
+  const turnsAt = Number.isFinite(section.radius) ? Math.PI * section.radius : Infinity;
+  while (section.at(hi)[0] < target) {
+    if (hi >= turnsAt) throw new Error("glassSurface: the section turns back before reaching the extended run");
+    lo = hi;
+    hi = Math.min(turnsAt, hi * 2 + 1);
+  }
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (section.at(mid)[0] < target) lo = mid; else hi = mid;
+  }
+  const [y, z] = section.at((lo + hi) / 2);
+  return add(add(add(p.base, scale(frame.x, dot(up, frame.x))), scale(frame.y, y)), scale(frame.z, z));
 }
 
 /** Division points 0 … total, `step` apart (fit "equal": as close to `step` as fits evenly). */
@@ -736,6 +765,9 @@ export function glassSurface(name: string, params: GlassSurfaceParams): GlassSur
           element: {
             id: pieceId(`tile_b${bay}_c${col}_r${row}`, piece), kind: "plate", thickness: tile.thickness, corners,
             color: tile.color ?? GLASS_COLOR, alpha: tile.alpha ?? 0.3, reflection: tile.reflection,
+            ...(tile.emissive ? { emissive: tile.emissive } : {}),
+            ...(tile.metallic !== undefined ? { metallic: tile.metallic } : {}),
+            ...(tile.roughness !== undefined ? { roughness: tile.roughness } : {}),
             ...(tile.bevel ? { bevel: tile.bevel } : {}),
           },
         }));

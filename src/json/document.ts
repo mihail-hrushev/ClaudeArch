@@ -4,11 +4,12 @@
  * levels, and a list of build operations that arrange the instruments (glass surfaces, columns,
  * arches, beams, handrails, stairs …) into one structure.
  *
- * The document holds only names, numbers and references: no expressions. Anything that needs
- * geometry or arithmetic is an operator (src/json/operators), written once in TypeScript.
+ * The document holds only names, numbers and references. Anything that needs geometry is an
+ * operator (src/json/operators), written once in TypeScript; lengths allow plain arithmetic only.
  *
  * Lengths are numbers in scene units (centimetres), strings with a unit ("1200mm", "4.2m",
- * "35cm"), or the name of a level from `levels`.
+ * "35cm"), the name of a level from `levels` (named lengths: heights and plan dimensions alike),
+ * or + - * / and parentheses on those ("-half - bay / 2"; a bare number is a plain factor).
  */
 import { z } from "zod";
 
@@ -46,9 +47,36 @@ export const TileAlign = z.enum([
   "top-left", "top-center", "top-right",
 ]);
 
-/** Tile of a glazed surface; `preset` takes the defaults from `glass`, fields here override. */
+/**
+ * A named glass material: its colour, opacity (`alpha`, 0 invisible … 1 opaque), share of the sky
+ * it reflects (`reflection`, 0 … 1) and the colour it glows with (`emissive`, default none).
+ * With `metallic` and `roughness` (0 … 1) it is a physically based material exactly as in glTF
+ * (`color` = baseColorFactor, `emissive` = emissiveFactor, both linear), and `reflection` is unused.
+ */
+export const MaterialSpec = z.object({
+  color: Color.optional(),
+  alpha: Num.optional(),
+  reflection: Num.optional(),
+  emissive: Color.optional(),
+  metallic: Num.min(0).max(1).optional(),
+  roughness: Num.min(0).max(1).optional(),
+}).strict();
+export type MaterialSpecType = z.infer<typeof MaterialSpec>;
+
+/** Glass of a window or screen: a `material` by name, and fields that override it. */
+export const GlassSpec = MaterialSpec.extend({
+  thickness: Length.optional(),
+  material: z.string().optional(),
+}).strict();
+export type GlassSpecType = z.infer<typeof GlassSpec>;
+
+/**
+ * Tile of a glazed surface; `preset` takes the defaults from `glass`, `material` (its own or its
+ * preset's) the look from `materials`, fields here override both.
+ */
 export const TileSpec = z.object({
   preset: z.string().optional(),
+  material: z.string().optional(),
   width: Length.optional(),
   length: Length.optional(),
   thickness: Length.optional(),
@@ -58,6 +86,9 @@ export const TileSpec = z.object({
   color: Color.optional(),
   alpha: Num.optional(),
   reflection: Num.optional(),
+  emissive: Color.optional(),
+  metallic: Num.min(0).max(1).optional(),
+  roughness: Num.min(0).max(1).optional(),
   bevel: z.object({ width: Length, depth: Length }).strict().optional(),
 }).strict();
 export type TileSpecType = z.infer<typeof TileSpec>;
@@ -134,6 +165,9 @@ export const StairTypeSpec = z.object({
  *            at the corners of a crossing `crossing` wide (default: the arm width), so the same
  *            sides in the same order are kept when the outline is moved in or out
  *   ellipse  width along X and depth along Y around `center`, `sides` corners (default 48)
+ *   apse     a half polygon of `segments` equal sides on the outside of side [plan, i]: that side
+ *            is its diameter, its corners lie on the half circle; corner 0 is the side's start, the
+ *            last side the diameter back to it
  */
 export const PlanSpec = z.union([
   z.object({
@@ -151,6 +185,7 @@ export const PlanSpec = z.union([
   z.object({ hull: z.array(z.string()).min(1), margin: Length.optional() }).strict(),
   z.object({ union: z.array(z.string()).min(1) }).strict(),
   z.object({ beside: z.string(), direction: Num, gap: Length.optional() }).strict(),
+  z.object({ apse: z.tuple([z.string(), Num.int()]), segments: Num.int().min(1) }).strict(),
 ]);
 export type PlanSpecType = z.infer<typeof PlanSpec>;
 
@@ -178,12 +213,13 @@ export type PointSpecType = z.infer<typeof PointSpec>;
  *   { point, normal }            explicit plane
  *   { plan, side: i, end: 0|1 }  bisector plane at one end of side i of a plan (keeps that side's sector)
  *   { plan, side: i }            the plane of side i, keeping the inside of the plan
+ *   ... outside: true            either of those two, keeping the other side
  *   { plan }                     all the sides of a plan: keeps the inside (as an opening: a hole
  *                                of that outline)
  */
 export const CutSpec = z.union([
   z.object({ point: PointSpec, normal: Vec3Spec }).strict(),
-  z.object({ plan: z.string(), side: Num.int(), end: Num.int().min(0).max(1).optional(), inset: Length.optional() }).strict(),
+  z.object({ plan: z.string(), side: Num.int(), end: Num.int().min(0).max(1).optional(), inset: Length.optional(), outside: z.boolean().optional() }).strict(),
   z.object({ plan: z.string(), inset: Length.optional() }).strict(),
 ]);
 export type CutSpecType = z.infer<typeof CutSpec>;
@@ -235,6 +271,8 @@ export const StructureDocument = z.object({
   color: Color.optional(),
   view: View.optional(),
   profiles: z.record(ProfileSpec).optional(),
+  /** Glass materials, referenced by name from glass presets, tiles and window glass. */
+  materials: z.record(MaterialSpec).optional(),
   /** Glass (or tile) presets, referenced by `tile.preset`. */
   glass: z.record(TileSpec).optional(),
   surfaces: z.record(SurfaceTypeSpec).optional(),

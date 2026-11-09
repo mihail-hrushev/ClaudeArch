@@ -106,8 +106,10 @@ function stations(ctx: BuildContext, spec: z.infer<typeof Stations>, path: strin
   return out;
 }
 
-/** A base or a capital of a classical column: its profile and height. */
-const ColumnEnd = z.object({ profile: ProfileRef, height: Length }).strict();
+/** A tier of a classical column's base or capital: its profile and height. */
+const ColumnTier = z.object({ profile: ProfileRef, height: Length }).strict();
+/** A base or a capital: one tier, or a stack of tiers listed from the bottom up (plinth, torus, ...). */
+const ColumnEnd = z.union([ColumnTier, z.array(ColumnTier).min(1)]);
 
 export const columns = defineOperator({
   name: "columns",
@@ -121,9 +123,9 @@ export const columns = defineOperator({
     top: Height,
     /** Columns at these corners, or on the bay lines of these sides, rise to another top instead. */
     tops: z.array(z.object({ corners: z.array(Num.int()).optional(), sides: z.array(Num.int()).optional(), top: Height }).strict()).optional(),
-    /** A wider base under the shaft, from the foot. */
+    /** A wider base under the shaft, from the foot: one tier or a stack of tiers from the bottom up. */
     base: ColumnEnd.optional(),
-    /** A capital on the shaft, up to the top; its profile's local y runs along the wall, local z into the building. */
+    /** A capital on the shaft, up to the top: one tier or a stack from the bottom up; its profiles' local y runs along the wall, local z into the building. */
     capital: ColumnEnd.optional(),
     /** Turn the profile's local z into the building (default: world X / Y as for any vertical member). */
     orient: z.boolean().optional(),
@@ -136,8 +138,13 @@ export const columns = defineOperator({
     const foot = ctx.optionalLength(p.foot, `${path}.foot`) ?? 0;
     const topAt = ctx.height(p.top, `${path}.top`);
     const tops = (p.tops ?? []).map((t, i) => ({ ...t, at: ctx.height(t.top, `${path}.tops[${i}].top`) }));
-    const end = (spec: z.infer<typeof ColumnEnd> | undefined, key: string) =>
-      spec && { profile: ctx.profile(spec.profile, `${path}.${key}.profile`), height: ctx.length(spec.height, `${path}.${key}.height`) };
+    const end = (spec: z.infer<typeof ColumnEnd> | undefined, key: string) => {
+      if (!spec) return undefined;
+      const list = Array.isArray(spec) ? spec : [spec];
+      const at = (i: number) => (Array.isArray(spec) ? `${path}.${key}[${i}]` : `${path}.${key}`);
+      const tiers = list.map((t, i) => ({ profile: ctx.profile(t.profile, `${at(i)}.profile`), height: ctx.length(t.height, `${at(i)}.height`) }));
+      return { tiers, height: tiers.reduce((h, t) => h + t.height, 0), single: !Array.isArray(spec) };
+    };
     const base = end(p.base, "base");
     const capital = end(p.capital, "capital");
     const up = p.up && ctx.vec3(p.up, `${path}.up`);
@@ -154,9 +161,18 @@ export const columns = defineOperator({
       const neck = capital ? top - capital.height : top;
       if (neck <= seat) throw new BuildError(`column ${i}: the base and the capital leave no shaft between ${seat} and ${neck}`, path);
       const kind = "straight" as const;
-      if (base) ctx.addElement({ id: `${p.name}_${i}_base`, kind, start: q, end: lifted(q, seat), profile: base.profile, ...rest });
+      // The tiers of an end, stacked from `from`; a single tier keeps the plain id.
+      const stack = (e: NonNullable<ReturnType<typeof end>>, from: number, key: string) => {
+        let z0 = from;
+        e.tiers.forEach((t, j) => {
+          const id = e.single ? `${p.name}_${i}_${key}` : `${p.name}_${i}_${key}${j}`;
+          ctx.addElement({ id, kind, start: lifted(q, z0), end: lifted(q, z0 + t.height), profile: t.profile, ...rest });
+          z0 += t.height;
+        });
+      };
+      if (base) stack(base, foot, "base");
       const el = ctx.addElement({ id: `${p.name}_${i}`, kind, start: lifted(q, seat), end: lifted(q, neck), profile, ...rest });
-      if (capital) ctx.addElement({ id: `${p.name}_${i}_capital`, kind, start: lifted(q, neck), end: lifted(q, top), profile: capital.profile, ...rest });
+      if (capital) stack(capital, neck, "capital");
       return { id: el.id, at: q, top, inward: st.inward, profile };
     });
     ctx.put(p.name, { kind: "columns", columns: placed }, path);

@@ -12,6 +12,7 @@ import { RenderTargetTexture } from "@babylonjs/core/Materials/Textures/renderTa
 import { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial";
 import { FresnelParameters } from "@babylonjs/core/Materials/fresnelParameters";
 import { ImageProcessingConfiguration } from "@babylonjs/core/Materials/imageProcessingConfiguration";
 import { DefaultRenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline";
@@ -119,6 +120,7 @@ export interface Environment {
  * Sky, sun, shadows, fog and post-processing for a right-handed, Z-up scene.
  * Press "L" to cycle the lighting presets; "?light=dusk" etc. selects the initial one.
  * Press "O" to toggle ambient occlusion; "?ao=off" leaves it out altogether.
+ * "?bloom=off" leaves out the bloom.
  * Press "B" to toggle the depth of field; "?dof=off" starts with it off.
  * Press "N" to toggle night mode; "?mode=night" starts with it (see night.ts).
  * The default is the HDRI sky; glass reflects whichever sky is shown through the probe.
@@ -211,6 +213,15 @@ export function createEnvironment(scene: Scene, orbit: ArcRotateCamera, fly: Cam
   const shadowMap = shadows.getShadowMap()!;
   shadowMap.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
 
+  // --- Image-based lighting for physically based (glTF-style) materials, as in the Babylon
+  // sandbox: the HDRI sky, prefiltered for glossy reflections, with its irradiance for diffuse light. ---
+  const iblSource = PRESETS.find((p) => p.hdri)?.hdri;
+  if (iblSource) {
+    const ibl = new HDRCubeTexture(iblSource.url, scene, 256, false, true, false, true);
+    ibl.setReflectionTextureMatrix(Matrix.RotationX(-Math.PI / 2).multiply(Matrix.RotationY(iblSource.turn * DEG)));
+    scene.environmentTexture = ibl;
+  }
+
   // --- Sky reflections for glass ---
   const probe = new ReflectionProbe("sky_probe", 256, scene, true, true);
   probe.renderList!.push(skybox);
@@ -245,7 +256,7 @@ export function createEnvironment(scene: Scene, orbit: ArcRotateCamera, fly: Cam
   const pipeline = new DefaultRenderingPipeline("pipeline", true, scene, cameras);
   pipeline.samples = 4;
   pipeline.fxaaEnabled = false; // MSAA already smooths edges
-  pipeline.bloomEnabled = true;
+  pipeline.bloomEnabled = new URLSearchParams(location.search).get("bloom") !== "off"; // "?bloom=off" leaves it out
   pipeline.bloomThreshold = 0.95;
   pipeline.bloomWeight = 0.2;
   pipeline.bloomKernel = 32;
@@ -331,6 +342,15 @@ export function createEnvironment(scene: Scene, orbit: ArcRotateCamera, fly: Cam
     addModel(meshes, model) {
       for (const mesh of meshes) {
         const mat = mesh.material;
+        if (mat instanceof PBRMaterial) {
+          // Physically based (glTF-style) glass or metal: lit by the scene's environment (see above).
+          shadows.addShadowCaster(mesh);
+          if (mat.alpha >= 1) {
+            mesh.receiveShadows = true;
+            gBuffer?.renderList?.push(mesh);
+          }
+          continue;
+        }
         if (!(mat instanceof StandardMaterial)) continue;
         if (mat.alpha < 1) {
           // Glass: sky reflection that strengthens at grazing angles.

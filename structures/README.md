@@ -10,6 +10,7 @@ npm run structure -- structures/pavilion.json   # build it, report the element c
 npm run structure -- --operators                # list the operators and their parameters
 npm run dev                                     # then open http://localhost:5173/?model=pavilion
 npm run snapshot                                # every document is a regression model "structure.<name>"
+npm run glb -- pavilion                         # export it as refs/pavilion.glb without the browser, list the materials written
 ```
 
 The document holds only **names, numbers and references**. There are no expressions: anything
@@ -20,13 +21,17 @@ the layout engine, the surface types are the stylesheet.
 ## Values
 
 - **Length**: a number in scene units (centimetres), a string with a unit (`"1200mm"`, `"4.2m"`,
-  `"35cm"`) or the name of a level (`"eaves"`).
+  `"35cm"`), the name of a level (`"eaves"`), or plain arithmetic on those: `+ - * /` and
+  parentheses, e.g. `"-half - bay / 2"` (a bare number is a plain factor). Levels are named lengths,
+  so plan dimensions go there too (`"baseSize": "8m", "half": "baseSize / 2"`): write coordinates in
+  terms of them and the whole building follows when one changes. Geometry (angles, circles) stays in
+  operators and plan shapes, not in lengths.
 - **Point**: `[x, y, z]`, `{ "corner": ["plan", i], "z": … }`, `{ "side": ["plan", i], "at": …,
   "inward": …, "z": … }` (on side i, `at` from its start, default the middle) or
   `{ "column": ["columnsResult", i], "z": … }`.
 - **Cut** (a plane keeping the side its normal points to): `{ "point": …, "normal": [x, y, z] }`,
   `{ "plan": "name", "side": i, "end": 0|1 }` (the bisector at one end of side i),
-  `{ "plan": "name", "side": i }` (the plane of side i, keeping the inside), or `{ "plan": "name" }`
+  `{ "plan": "name", "side": i }` (the plane of side i, keeping the inside; either of these two with `"outside": true` keeps the other side), or `{ "plan": "name" }`
   (all sides). In `openings`, a plan name alone means a hole of that outline, and
   `{ "arch": { "side": ["plan", i], "at": …, "spring": …, "radius": …, "facets": 16 } }` a round-headed
   opening standing on side i (the end of a barrel vault running into a wall).
@@ -41,7 +46,15 @@ the layout engine, the surface types are the stylesheet.
   "color": [0.97, 0.97, 0.95],                       // default colour of ribs, frames, supports
   "view": { "target": [0, 0, 500], "radius": 3200, "alpha": 125, "beta": 70 },   // degrees
   "profiles": { "rib": { "rect": ["50mm", "140mm"] }, "column": { "circle": "150mm" }, "post": { "square": "60mm" } },   // also { "regular": 6, "radius": … }: flat sides
-  "glass":    { "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "gap": "15mm", "alpha": 0.5, "reflection": 0.5 } },
+  "materials": {                                      // glass looks: color, alpha (0 invisible … 1 opaque),
+    "blueGlass":   { "color": [0.62, 0.85, 0.82], "alpha": 0.5, "reflection": 0.5 },   // reflection (share of the sky, 0 … 1),
+    "orangeGlass": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [1, 0.5, 0] }  // emissive (glow);
+  },                                                  // this one is a glTF material (see below): it exports to a .glb unchanged
+  "glass":    { "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "gap": "15mm", "material": "blueGlass" } },
+                                                      // a preset's or tile's own color/alpha/reflection/emissive override its material
+                                                      // with "metallic" and "roughness" (0 … 1) a material is physically based
+                                                      // exactly as in glTF: color/emissive linear (glTF baseColorFactor and
+                                                      // emissiveFactor), single-sided, lit by the HDRI sky; "reflection" unused
   "surfaces": {
     "wall": { "ribStep": "1750mm", "tile": { "preset": "clear", "align": "top-center" },
               "profiles": { "mainRib": "rib", "cutRib": "cutRib", "horizontalFrame": "frame", "verticalFrame": "mullion" } },
@@ -65,7 +78,10 @@ the layout engine, the surface types are the stylesheet.
                                                       // arms along ±X / ±Y to the centre of their apse, each ending in
                                                       // `apseSides` flat facets (0: square); a missing arm closes straight,
                                                       // divided at the corners of a crossing `crossing` wide
-    "lake":  { "ellipse": ["90m", "40m"], "sides": 48, "center": [0, "-37m"] }
+    "lake":  { "ellipse": ["90m", "40m"], "sides": 48, "center": [0, "-37m"] },
+    "end":   { "apse": ["box", 0], "segments": 3 }   // a half polygon on the outside of side 0 of "box", that side
+                                                      // its diameter: corner 0 is the side's start, the last side
+                                                      // the diameter back to it
   },
   "groups": {                                        // reusable assemblies, see Groups below
     "porch": { "plan": { "porch": { "rect": ["10m", "4m"], "center": [0, "-7m"] } }, "build": [ … ] }
@@ -92,14 +108,14 @@ bays divide the width), `ribsOnGrid` (true: main ribs on the tile joints nearest
 
 | op | what it does | main fields |
 |---|---|---|
-| `surface` | one glass surface placed explicitly | `base`, `alongX`, `alongZ`, `tangent?` (the section's direction at the base: `[inward, up]` towards `alongZ`, a name from `tangents`, or the older `[0, inward, up]`), `facing?` |
+| `surface` | one glass surface placed explicitly | `base`, `alongX`, `alongZ`, `extend?` (continue the section past `alongZ` on the same arc, this much further inwards), `tangent?` (the section's direction at the base: `[inward, up]` towards `alongZ`, a name from `tangents`, or the older `[0, inward, up]`), `facing?` |
 | `walls` | upright walls along the sides of a plan (square at reflex corners) | `plan`, `sides?`, `foot?` (height), `top` (height), `overlap?`, `inset?`, `bays?` (`{columns, clear?, within?}`: one surface per bay between the columns standing in the wall line) |
 | `roof` | a face rising from every side, run on to the valley past a reflex corner; leaves a height field | `plan`, `eaves`, `rise?`, `run?`, `slope?` (degrees at the eaves, or `"level"`: the arc levels off at the top of its run), `valleys?` (false: faces stop square at reflex corners), `bays?` (as for walls) |
 | `dome` | a faceted dome over a plan; leaves a height field | `plan`, `base`, `rise`, `apex?`, `springing?` (90 = vertical, `"flat"`, or degrees), `opening?` (width of the flat opening left at the top) |
 | `floor` | a tiled floor over a plan, structure below | `plan`, `level`, `along?`, `ceiling?` |
 | `deck` | tiled deck bays between two outlines, e.g. a walkway between beam lines: one bay per side of the outer outline, closed along the inner one | `outer`, `inner`, `level` (walking surface) |
 | `bays` | whole bays of about `step` on every side of a plan; leaves a bays result that glazing (`bays`) and columns (`at.bays`) on the same sides of any layer take their stations from | `plan`, `step`, `measure?` (`{plan, sides?}`: count on the matching side of another outline), `even?` (sides kept as equal shares rather than lines carried across), `margin?` |
-| `columns` | columns at corners, along sides, opposite other columns, or at points, with a base and a capital if asked; leaves a columns result | `at` (`{plan, corners?, inset?}` / `{plan, sides?, spacing or bays (a count, or a bays result), inset?, includeCorners?}` / `{plan, sides?, opposite, inset?, includeCorners?}`: at the corners and opposite the columns of a result or the convex corners of an outline, each projected onto its nearest side / `{points}`), `profile`, `foot?`, `top` (height), `tops?` (`[{corners?, sides?, top}]`), `base?` / `capital?` (`{profile, height}`), `orient?`, `up?` |
+| `columns` | columns at corners, along sides, opposite other columns, or at points, with a base and a capital if asked; leaves a columns result | `at` (`{plan, corners?, inset?}` / `{plan, sides?, spacing or bays (a count, or a bays result), inset?, includeCorners?}` / `{plan, sides?, opposite, inset?, includeCorners?}`: at the corners and opposite the columns of a result or the convex corners of an outline, each projected onto its nearest side / `{points}`), `profile`, `foot?`, `top` (height), `tops?` (`[{corners?, sides?, top}]`), `base?` / `capital?` (`{profile, height}`, or a list of such tiers from the bottom up), `orient?`, `up?` |
 | `arches` | arches between consecutive columns (a ring unless `open`), or from each column to the nearest of another result | `between`, `to?`, `profile`, one of `spring`, `crown` (level of the crowns) or `under` (a height, or `{columns: offset}`: the line between the column tops; the arch is raised until its back just touches it), or both `spring` and `under` (half ellipses from that level, as tall as just touches), `rise?` (segmental), `inward?` |
 | `beams` | beams between consecutive columns, or to the nearest of another result, at a level or following a roof | `between`, `to?`, `profile`, `level` (height), `open?`, `inward?` |
 | `member` | one straight / arc / polyline member | `profile`, `start`, `end`, `startTangent?` (arc), `nodes?` (polyline), `up?` |
@@ -112,9 +128,9 @@ bays divide the width), `ribsOnGrid` (true: main ribs on the tile joints nearest
 | `handrail` | handrail sections along plan sides or between two points | `type`, `along` (`{plan, sides?, level, inward?}` / `{from, to}`), `padding?`, `railBeamDrop?`, `gaps?` (points results, e.g. stairs, marking stretches left open) |
 | `stair` | a stair along a centre line; leaves a points result marking where it arrives | `type`, `path`, `floor?`, `height`, `landing?` (`"bend"`: the middle platform centred on the first bend), `arrival?` (`{length?, exit?: {side, length?, reach, column, arch?}}`: a way off the arrival beside a column, the column's quarter arches carrying it) |
 | `group` | places a group from `groups`, built in its local coordinates, turned about the vertical and moved; ids and results get the prefix `<name>/` | `use`, `rotate?` (degrees), `about?`, `move?` |
-| `window` | a framed window in the line of a plan side: middle post, a rib in each half, an outer elliptical arch on the frame sides and an inner one on the ribs, both springing at `spring`, a horizontal rib on each side joining their feet and a diagonal one at 45 degrees (parametric: the projection of a round arch); glass inside the outer arch, solid spandrels outside it | `side` (`["plan", i]`), `at?`, `inward?`, `foot`, `width`, `height` or `top` (a level), `spring?` (a level, like `foot`; default half-way up), `innerRise?` (share of the outer rise, default 0.5), `arcSegments?` (rounded up to a multiple of 4), `profiles` (`{frame, post?, rib?}`), `glass?`, `solid?` |
-| `archSurface` | an upright glazed screen between two points: a frame from `foot` to `top`, vertical ribs every `ribStep` (rounded to equal bays), each bay crowned by a semicircular arch whose crown touches the frame top; glass below and inside the arches, solid spandrels above them | `from`, `to` (points; plan position only), `inset?` (shortens both ends), `foot`, `top`, `ribStep?` (default 400 mm), `arcSegments?`, `floor?` (arcs `{from, to, tangent?}` written like a surface section, e.g. a roof meeting the screen: everything below them is cut away, the bottom frame follows them and the ribs stand on them), `profiles` (`{frame, rib?, arch?}`), `glass?`, `solid?` |
-| `archWindow` | a large round-headed window between two points: jambs from `foot` to the springing, an outer and an inner semicircular arch; the band between them split into equal sectors by radial ribs, the inner half disc into equal vertical strips whose ribs run on down to the sill; glass throughout | `from`, `to` (points; plan position only, centred between them), `foot`, `outerRadius?` (default half the span), `innerRadius`, `ringSegments?` (default 15), `ribs?` (default 12), `spring?` or `ceiling?` (arcs `{from, to, tangent?}` like `floor` above: the window rises until the outer arch's back just touches them; the gap above is filled solid unless `spandrels: false`), `arcSegments?` (pieces per sector, default 4), `profiles` (`{frame, arch?, rib?}`), `glass?`, `solid?` |
+| `window` | a framed window in the line of a plan side: middle post, a rib in each half, an outer elliptical arch on the frame sides and an inner one on the ribs, both springing at `spring`, a horizontal rib on each side joining their feet and a diagonal one at 45 degrees (parametric: the projection of a round arch); glass inside the outer arch, solid spandrels outside it | `side` (`["plan", i]`), `at?`, `inward?`, `foot`, `width`, or `part` instead of `at` and `width` (`[i, n]`: part i of n equal parts of the side), `sidesOnEdges?` (the frame sides centred on the window edges, on a rib line and shared with the next window; `width` then runs between their centre lines), `height` or `top` (a level), `spring?` (a level, like `foot`; default half-way up), `innerRise?` (share of the outer rise, default 0.5), `arcSegments?` (rounded up to a multiple of 4), `profiles` (`{frame, frameVertical?, frameHorizontal?, post?, rib?}`: `frame` for the outer arch and the default of the frame's vertical sides and its top and bottom, which can be set apart, e.g. heavier sides carrying the load from above), `glass?` (`{thickness?, material?, color?, alpha?, reflection?, emissive?}`: a material from `materials`, fields override it), `solid?` |
+| `archSurface` | an upright glazed screen between two points: a frame from `foot` to `top`, vertical ribs every `ribStep` (rounded to equal bays), each bay crowned by a semicircular arch whose crown touches the frame top; glass below and inside the arches, solid spandrels above them | `from`, `to` (points; plan position only), `inset?` (shortens both ends), `foot`, `top`, `ribStep?` (default 400 mm), `arcSegments?`, `floor?` (arcs `{from, to, tangent?}` written like a surface section, e.g. a roof meeting the screen: everything below them is cut away, the bottom frame follows them and the ribs stand on them), `profiles` (`{frame, rib?, arch?}`), `glass?` (`{thickness?, material?, color?, alpha?, reflection?, emissive?}`: a material from `materials`, fields override it), `solid?` |
+| `archWindow` | a large round-headed window between two points: jambs from `foot` to the springing, an outer and an inner semicircular arch; the band between them split into equal sectors by radial ribs, the inner half disc into equal vertical strips whose ribs run on down to the sill; glass throughout | `from`, `to` (points; plan position only, centred between them), `foot`, `outerRadius?` (default half the span), `innerRadius`, `ringSegments?` (default 15), `ribs?` (default 12), `spring?` or `ceiling?` (arcs `{from, to, tangent?}` like `floor` above: the window rises until the outer arch's back just touches them; the gap above is filled solid unless `spandrels: false`), `arcSegments?` (pieces per sector, default 4), `profiles` (`{frame, arch?, rib?}`), `glass?` (`{thickness?, material?, color?, alpha?, reflection?, emissive?}`: a material from `materials`, fields override it), `solid?` |
 
 `npm run structure -- --operators` prints the current list from the code, which is the authority.
 

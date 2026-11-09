@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { type Vec3, add, sub, scale, dot, cross, normalize, len, WORLD_Z } from "../../fem/vec";
 import { type P2, type Side, at } from "../../fem/plan";
-import { type CutPlane, type GlassSurface, type GlassSurfaceParams, glassSurface } from "../../generators/glassSurface";
+import { type CutPlane, type GlassSurface, type GlassSurfaceParams, extendedTop, glassSurface } from "../../generators/glassSurface";
 import { type BuildContext, BuildError, type Plan, type SurfaceType } from "../context";
 import { CutSpec, Length, Num, OpeningSpec, PointSpec, SurfaceTypeSpec, TileAlign, Vec3Spec, Padding, TangentRef } from "../document";
 import { defineOperator } from "../operator";
@@ -104,12 +104,23 @@ export const surface = defineOperator({
     tangent: TangentRef.optional(),
     /** Direction the glass faces, away from the structure (default: horizontal, outwards). */
     facing: Vec3Spec.optional(),
+    /** Continue the section past `alongZ` on the same arc, this much further along local Y (inwards). */
+    extend: Length.optional(),
   }).strict(),
   run(ctx, p, path) {
-    const block = place(ctx, p.name, surfaceParams(ctx, p, path, {
+    const placement = {
       base: ctx.point(p.base, `${path}.base`), alongX: ctx.point(p.alongX, `${path}.alongX`), alongZ: ctx.point(p.alongZ, `${path}.alongZ`),
       tangent: p.tangent === undefined ? undefined : ctx.tangent(p.tangent, `${path}.tangent`), facing: p.facing && ctx.vec3(p.facing, `${path}.facing`),
-    }));
+    };
+    const extend = ctx.optionalLength(p.extend, `${path}.extend`);
+    if (extend !== undefined) {
+      try {
+        placement.alongZ = extendedTop(placement, extend);
+      } catch (e) {
+        throw new BuildError((e as Error).message, `${path}.extend`);
+      }
+    }
+    const block = place(ctx, p.name, surfaceParams(ctx, p, path, placement));
     ctx.put(p.name, { kind: "surfaces", blocks: [block] }, path);
   },
 });

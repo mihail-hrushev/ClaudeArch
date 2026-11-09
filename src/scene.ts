@@ -10,6 +10,7 @@ import { createEnvironment } from "./render/environment";
 import { createSpectator } from "./render/spectator";
 import { createStatsOverlay } from "./render/stats";
 import { installIvyToggle } from "./render/ivyLayer";
+import { installGlbExport } from "./render/exportGlb";
 import { restoreCameraFromUrl, trackCameraInUrl } from "./render/cameraUrl";
 import type { View } from "./models/view";
 import { buildCuritibaV2, curitibaV2View } from "./models/curitibaV2";
@@ -78,7 +79,10 @@ export async function createScene(engine: Engine, canvas: HTMLCanvasElement): Pr
 
   createAxes(scene);
   const model = await entry.build();
-  environment.addModel(buildModel(model, scene), model);
+  const meshes = buildModel(model, scene);
+  environment.addModel(meshes, model);
+  // "Save GLB" button and "G": download the structure as a binary glTF.
+  installGlbExport(scene, meshes, entry.key);
   // Ivy decoration layer (src/render/ivyLayer.ts): "?ivy=1" grows it at start-up, "I" toggles it.
   installIvyToggle(scene, model, environment);
 

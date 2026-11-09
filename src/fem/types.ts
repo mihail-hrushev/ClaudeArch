@@ -72,6 +72,11 @@ export interface PlateElement extends ElementBase {
   readonly alpha?: number;
   /** Glass: share of the sky reflected when looking straight at it, 0 … 1 (default 0.08). */
   readonly reflection?: number;
+  /** Colour the plate glows with, independent of the light (default none). */
+  readonly emissive?: Vec3;
+  /** Physically based look as in glTF (0 … 1); with these the colours are linear and `reflection` is unused. */
+  readonly metallic?: number;
+  readonly roughness?: number;
   /**
    * Facets around the top face (the +normal side), e.g. a ceramic tile: the top is inset by
    * `width` and a sloped strip `depth` deep runs down from it to the plate's edge. Pieces too

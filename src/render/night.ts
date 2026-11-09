@@ -14,6 +14,7 @@ import { RenderTargetTexture } from "@babylonjs/core/Materials/Textures/renderTa
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture";
 import type { Material } from "@babylonjs/core/Materials/material";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial";
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial";
 import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 import type { DefaultRenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline";
@@ -295,7 +296,7 @@ export function createNightMode(rig: NightRig): NightMode {
   const casters = new Set<AbstractMesh>();
   const own = new Set<AbstractMesh>();
   const receivedBefore = new Map<AbstractMesh, boolean>();
-  const reflectionBefore = new Map<StandardMaterial, BaseTexture | null>();
+  const reflectionBefore = new Map<StandardMaterial | PBRMaterial, BaseTexture | null>();
   const lamps: Lamp[] = [];
   const spots = () => lamps.filter((l) => l.shadows);
   /** Opaque cream plates (walk-floor tiles): faintly emissive at night, as if lit from above. */
@@ -323,7 +324,7 @@ export function createNightMode(rig: NightRig): NightMode {
     for (const mesh of meshes) {
       if (own.has(mesh)) continue;
       casters.add(mesh);
-      if (mesh.material instanceof StandardMaterial && mesh.material.alpha < 1) glass.add(mesh);
+      if ((mesh.material instanceof StandardMaterial || mesh.material instanceof PBRMaterial) && mesh.material.alpha < 1) glass.add(mesh);
     }
     if (enabled && lamps.length) attachCasters(meshes);
   }
@@ -513,7 +514,7 @@ export function createNightMode(rig: NightRig): NightMode {
   /** Switches the glass reflections to the night probe. */
   function reflectInterior() {
     for (const mesh of glass) {
-      const mat = mesh.material as StandardMaterial;
+      const mat = mesh.material as StandardMaterial | PBRMaterial;
       if (!reflectionBefore.has(mat)) reflectionBefore.set(mat, mat.reflectionTexture);
       mat.reflectionTexture = probe!.cubeTexture;
     }

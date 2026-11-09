@@ -17,7 +17,7 @@ import type { HandrailParams } from "../generators/handrail";
 import type { StairParams } from "../generators/stair";
 import type {
   CutSpecType, LengthSpec, OpeningSpecType, PlanSpecType, PointSpecType, ProfileRefSpec, StructureDocumentType, SurfaceTypeSpecType,
-  TileSpecType, TangentRefSpec } from "./document";
+  TileSpecType, TangentRefSpec, MaterialSpecType, GlassSpecType } from "./document";
 
 export class BuildError extends Error {
   constructor(message: string, readonly path: string) {
@@ -114,17 +114,61 @@ export class BuildContext {
 
   // ---- lengths ---------------------------------------------------------------------------------
 
-  /** A length in scene units from a number, "<n><unit>" or a level name. */
-  length(spec: LengthSpec, path = "length"): number {
+  /**
+   * A length in scene units from a number, "<n><unit>", a level name, or simple arithmetic on
+   * those: + - * / and parentheses, e.g. "-half - bay / 2" (a bare number is a plain factor).
+   */
+  length(spec: LengthSpec, path = "length", resolving: readonly string[] = []): number {
     if (typeof spec === "number") return spec;
     const level = this.doc.levels?.[spec];
     if (level !== undefined) {
-      if (typeof level === "string" && level === spec) throw new BuildError(`level "${spec}" refers to itself`, path);
-      return this.length(level, `levels.${spec}`);
+      if (resolving.includes(spec)) throw new BuildError(`level "${spec}" refers to itself`, path);
+      return this.length(level, `levels.${spec}`, [...resolving, spec]);
     }
     const m = /^\s*(-?\d+(?:\.\d+)?)\s*(mm|cm|m)\s*$/.exec(spec);
-    if (!m) throw new BuildError(`"${spec}" is neither a number with a unit (mm, cm, m) nor a level`, path);
-    return Number(m[1]) * UNITS[m[2]];
+    if (m) return Number(m[1]) * UNITS[m[2]];
+    return this.expression(spec, path, resolving);
+  }
+
+  /** Arithmetic on lengths and level names; see `length`. */
+  private expression(text: string, path: string, resolving: readonly string[]): number {
+    const tokens = text.match(/\d+(?:\.\d+)?(?:mm|cm|m)?(?![A-Za-z_])|[A-Za-z_][A-Za-z0-9_]*|[-+*/()]|\S/g) ?? [];
+    let i = 0;
+    const fail = (why: string): never => {
+      throw new BuildError(`"${text}" is not a length: ${why} (a number with a unit, a level, or + - * / ( ) on those)`, path);
+    };
+    const primary = (): number => {
+      const t = tokens[i++];
+      if (t === undefined) return fail("it ends too early");
+      if (t === "-") return -primary();
+      if (t === "+") return primary();
+      if (t === "(") {
+        const v = sum();
+        if (tokens[i++] !== ")") fail("a ( is not closed");
+        return v;
+      }
+      const num = /^(\d+(?:\.\d+)?)(mm|cm|m)?$/.exec(t);
+      if (num) return Number(num[1]) * (num[2] ? UNITS[num[2]] : 1);
+      if (/^[A-Za-z_]/.test(t)) {
+        if (this.doc.levels?.[t] === undefined) fail(`"${t}" is not a level`);
+        return this.length(t, path, resolving);
+      }
+      return fail(`unexpected "${t}"`);
+    };
+    const product = (): number => {
+      let v = primary();
+      while (tokens[i] === "*" || tokens[i] === "/") v = tokens[i++] === "*" ? v * primary() : v / primary();
+      return v;
+    };
+    const sum = (): number => {
+      let v = product();
+      while (tokens[i] === "+" || tokens[i] === "-") v = tokens[i++] === "+" ? v + product() : v - product();
+      return v;
+    };
+    const v = sum();
+    if (i < tokens.length) fail(`unexpected "${tokens[i]}"`);
+    if (!Number.isFinite(v)) fail("it is not finite");
+    return v;
   }
 
   optionalLength(spec: LengthSpec | undefined, path: string): number | undefined {
@@ -167,12 +211,40 @@ export class BuildContext {
     return squareProfile(this.length(ref.square, `${path}.square`));
   }
 
-  /** A tile from its preset, the fields given, and the `base` tile of an extended type. */
+  /** A glass material by name from `materials`. */
+  material(name: string, path: string): MaterialSpecType {
+    const found = this.doc.materials?.[name];
+    if (!found) throw new BuildError(`unknown material "${name}"`, path);
+    return found;
+  }
+
+  /**
+   * The look of a window's or screen's glass: its material, then its own fields, then the
+   * operator's defaults.
+   */
+  glass(spec: GlassSpecType | undefined, path: string, defaults: { color: Vec3; alpha: number; reflection: number }) {
+    const m = spec?.material ? this.material(spec.material, `${path}.material`) : {};
+    const color = spec?.color ?? m.color ?? defaults.color;
+    const emissive = spec?.emissive ?? m.emissive;
+    const metallic = spec?.metallic ?? m.metallic;
+    const roughness = spec?.roughness ?? m.roughness;
+    return {
+      color: color as Vec3, alpha: spec?.alpha ?? m.alpha ?? defaults.alpha, reflection: spec?.reflection ?? m.reflection ?? defaults.reflection,
+      ...(emissive ? { emissive: emissive as Vec3 } : {}),
+      ...(metallic !== undefined ? { metallic } : {}),
+      ...(roughness !== undefined ? { roughness } : {}),
+    };
+  }
+
+  /** A tile from its preset, its material, the fields given, and the `base` tile of an extended type. */
   private tile(spec: TileSpecType | undefined, path: string, base?: SurfaceType["tile"]): SurfaceType["tile"] | undefined {
     if (!spec) return base;
     const preset = spec.preset ? this.doc.glass?.[spec.preset] : undefined;
     if (spec.preset && !preset) throw new BuildError(`unknown glass preset "${spec.preset}"`, `${path}.preset`);
-    const merged = { ...preset, ...spec };
+    const materialName = spec.material ?? preset?.material;
+    const material = materialName ? this.material(materialName, `${path}.material`) : undefined;
+    const merged = { ...material, ...preset, ...spec };
+    const look = material ? undefined : base;
     const size = (key: "width" | "length" | "thickness" | "gap") => {
       if (merged[key] === undefined) return base?.[key];
       return this.length(merged[key]!, `${path}.${key}`);
@@ -184,7 +256,10 @@ export class BuildContext {
     return {
       width, length, thickness, gap: size("gap"),
       fit: merged.fit ?? base?.fit, align: merged.align ?? base?.align,
-      color: merged.color ?? base?.color, alpha: merged.alpha ?? base?.alpha, reflection: merged.reflection ?? base?.reflection,
+      // A tile naming a material takes its whole look from it, none from the extended type.
+      color: merged.color ?? look?.color, alpha: merged.alpha ?? look?.alpha, reflection: merged.reflection ?? look?.reflection,
+      emissive: merged.emissive ?? look?.emissive,
+      metallic: merged.metallic ?? look?.metallic, roughness: merged.roughness ?? look?.roughness,
       bevel: merged.bevel
         ? { width: this.length(merged.bevel.width, `${path}.bevel.width`), depth: this.length(merged.bevel.depth, `${path}.bevel.depth`) }
         : base?.bevel,
@@ -298,6 +373,19 @@ export class BuildContext {
       polygon = offsetPolygon(this.plan(spec.offset, `${path}.offset`).polygon, this.length(spec.by, `${path}.by`));
     } else if ("union" in spec) {
       polygon = unionOutline(spec.union.map((n) => this.plan(n, `${path}.union`).polygon));
+    } else if ("apse" in spec) {
+      // A half polygon on the outside of a side: the side is its diameter, the corners on the half circle.
+      const s = this.sideOf(spec.apse[0], spec.apse[1], `${path}.apse`);
+      const m = scale(add(s.a, s.b), 0.5);
+      const r = s.length / 2;
+      const u = scale(s.along, -1);
+      const out = scale(s.inward, -1);
+      const n = spec.segments;
+      polygon = counterClockwise(Array.from({ length: n + 1 }, (_, k): P2 => {
+        const t = (Math.PI * k) / n;
+        const q = add(m, add(scale(u, r * Math.cos(t)), scale(out, r * Math.sin(t))));
+        return [q[0], q[1]];
+      }));
     } else if ("beside" in spec) {
       const original = this.plan(spec.beside, `${path}.beside`).polygon;
       const angle = (spec.direction * Math.PI) / 180;
@@ -361,7 +449,8 @@ export class BuildContext {
     const moved = (c: CutPlane): CutPlane => ({ point: add(c.point, scale(c.normal, inset)), normal: c.normal });
     if ("side" in spec) {
       const s = this.sideOf(spec.plan, spec.side, `${path}.plan`);
-      return [moved(spec.end === undefined ? { point: s.a, normal: s.inward } : s.corners[spec.end])];
+      const plane = spec.end === undefined ? { point: s.a, normal: s.inward } : s.corners[spec.end];
+      return [moved(spec.outside ? { point: plane.point, normal: scale(plane.normal, -1) } : plane)];
     }
     return this.plan(spec.plan, `${path}.plan`).sides.map((s) => moved({ point: s.a, normal: s.inward }));
   }

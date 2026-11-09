@@ -7,7 +7,10 @@ import type { Element } from "../../fem/types";
 import type { Profile } from "../../fem/profiles";
 import { type Vec3, add, dot, len, normalize, scale, sub, WORLD_Z } from "../../fem/vec";
 import { BuildError } from "../context";
-import { Color, Length, Num, PointSpec, ProfileRef, TangentRef } from "../document";
+import { Color, GlassSpec, Length, Num, PointSpec, ProfileRef, TangentRef } from "../document";
+
+/** Window glass when its material and fields leave a value open. */
+const WINDOW_GLASS = { color: [0.8, 0.9, 0.95] as Vec3, alpha: 0.35, reflection: 0.5 };
 import { defineOperator } from "../operator";
 
 type P = readonly [number, number];
@@ -33,12 +36,19 @@ export const window = defineOperator({
     side: z.tuple([z.string(), Num.int()]),
     /** Distance of the window centre from the start of the side (default: the middle). */
     at: Length.optional(),
+    /** Part i of n equal parts of the side, instead of `at` and `width`: [i, n]. */
+    part: z.tuple([Num.int().min(0), Num.int().min(1)]).optional(),
     /** Offset of the window plane into the plan. */
     inward: Length.optional(),
     /** Level of the bottom of the frame. */
     foot: Length,
-    /** Outer size of the frame. */
-    width: Length,
+    /** Outer size of the frame (with `sidesOnEdges`: across the centre lines of its sides). */
+    width: Length.optional(),
+    /**
+     * The frame's sides stand centred on the window's edges instead of inside them: on a structural rib
+     * line, one side shared with the window next to it (default false).
+     */
+    sidesOnEdges: z.boolean().optional(),
     /** Height of the frame; or give `top` instead. */
     height: Length.optional(),
     /** Level of the top of the frame, instead of `height`. */
@@ -52,12 +62,19 @@ export const window = defineOperator({
     profiles: z.object({
       /** Frame and outer arch. */
       frame: ProfileRef,
+      /**
+       * The frame's two vertical sides, which carry the load from above (default: the frame profile);
+       * a rect's first size runs along the wall, the second is its depth.
+       */
+      frameVertical: ProfileRef.optional(),
+      /** The frame's top and bottom (default: the frame profile); a rect's first size is its height in the wall. */
+      frameHorizontal: ProfileRef.optional(),
       /** Middle post (default: the frame profile). */
       post: ProfileRef.optional(),
       /** Ribs of the halves and the inner arch (default: the post profile). */
       rib: ProfileRef.optional(),
     }).strict(),
-    glass: z.object({ thickness: Length.optional(), color: Color.optional(), alpha: Num.optional(), reflection: Num.optional() }).strict().optional(),
+    glass: GlassSpec.optional(),
     solid: z.object({ thickness: Length.optional(), color: Color.optional() }).strict().optional(),
     color: Color.optional(),
   }).strict(),
@@ -66,34 +83,47 @@ export const window = defineOperator({
     const n = plan.sides.length;
     const s = plan.sides[((p.side[1] % n) + n) % n];
 
-    const width = ctx.length(p.width, `${path}.width`);
+    if (p.part && (p.at !== undefined || p.width !== undefined)) throw new BuildError("give a window either `part` or `at` and `width`", path);
+    if (!p.part && p.width === undefined) throw new BuildError("give a window a `width` (or a `part` of its side)", path);
+    if (p.part && p.part[0] >= p.part[1]) throw new BuildError(`part ${p.part[0]} of ${p.part[1]} does not exist`, `${path}.part`);
+    const width = p.part ? s.length / p.part[1] : ctx.length(p.width!, `${path}.width`);
     const foot = ctx.length(p.foot, `${path}.foot`);
     if ((p.height === undefined) === (p.top === undefined)) throw new BuildError("give a window either `height` or `top`", path);
     const height = p.height !== undefined ? ctx.length(p.height, `${path}.height`) : ctx.length(p.top!, `${path}.top`) - foot;
     const frameProfile = ctx.profile(p.profiles.frame, `${path}.profiles.frame`);
     const postProfile = p.profiles.post ? ctx.profile(p.profiles.post, `${path}.profiles.post`) : frameProfile;
     const ribProfile = p.profiles.rib ? ctx.profile(p.profiles.rib, `${path}.profiles.rib`) : postProfile;
-    const frameWidth = 2 * Math.max(...frameProfile.outline.map(([y]) => Math.abs(y)));
+    const verticalProfile = p.profiles.frameVertical ? ctx.profile(p.profiles.frameVertical, `${path}.profiles.frameVertical`) : frameProfile;
+    const horizontalProfile = p.profiles.frameHorizontal ? ctx.profile(p.profiles.frameHorizontal, `${path}.profiles.frameHorizontal`) : frameProfile;
+    const widthOf = (pr: Profile) => 2 * Math.max(...pr.outline.map(([y]) => Math.abs(y)));
+    const frameWidth = widthOf(frameProfile);
+    const verticalWidth = widthOf(verticalProfile);
+    const horizontalWidth = widthOf(horizontalProfile);
 
     // Local coordinates: u across the window from its centre, v up from the foot; on the frame's centre lines.
-    const right = width / 2 - frameWidth / 2;
-    const bottom = frameWidth / 2;
-    const top = height - frameWidth / 2;
+    const right = p.sidesOnEdges ? width / 2 : width / 2 - verticalWidth / 2;
+    const bottom = horizontalWidth / 2;
+    const top = height - horizontalWidth / 2;
     const spring = p.spring === undefined ? height / 2 : ctx.length(p.spring, `${path}.spring`) - foot;
-    if (right <= 0 || !(spring > bottom && spring < top - frameWidth)) {
-      throw new BuildError(`a window ${width} x ${height} is too small for its frame, or springs outside it`, path);
+    // The opening inside the frame: its members' inner faces. Everything else of the window is drawn in it.
+    const inRight = right - verticalWidth / 2;
+    const inBottom = bottom + horizontalWidth / 2;
+    const inTop = top - horizontalWidth / 2;
+    // The outer arch's edges touch the frame: its feet against the sides, its crown under the top.
+    const archHalf = inRight - frameWidth / 2;
+    if (archHalf <= 0 || !(spring > inBottom && spring < inTop - frameWidth)) {
+      throw new BuildError(`a window ${width} x ${height} is too small for its frame, or springs outside its opening`, path);
     }
-    // The outer arch's crown touches the frame top: their edges meet, their centre lines a frame width apart.
-    const rise = top - frameWidth - spring;
-    const innerHalf = right / 2;
+    const rise = inTop - frameWidth / 2 - spring;
+    const innerHalf = archHalf / 2;
     const innerRise = rise * (p.innerRise ?? 0.5);
     if (innerRise >= rise) throw new BuildError("the inner arch reaches the outer one: lower innerRise", `${path}.innerRise`);
     // A multiple of 4, so both arches have nodes at the quarter angles where the diagonal ribs meet them.
     const segments = 4 * Math.ceil((p.arcSegments ?? 24) / 4);
-    const outer = halfEllipse([0, spring], right, rise, segments);
+    const outer = halfEllipse([0, spring], archHalf, rise, segments);
     const inner = halfEllipse([0, spring], innerHalf, innerRise, segments);
 
-    const along = p.at === undefined ? s.length / 2 : ctx.length(p.at, `${path}.at`);
+    const along = p.part ? (s.length * (p.part[0] + 0.5)) / p.part[1] : p.at === undefined ? s.length / 2 : ctx.length(p.at, `${path}.at`);
     const centre = add(add(s.a, scale(s.along, along)), scale(s.inward, ctx.optionalLength(p.inward, `${path}.inward`) ?? 0));
     const origin: Vec3 = [centre[0], centre[1], foot];
     const W = ([u, v]: P): Vec3 => add(add(origin, scale(s.along, u)), scale(WORLD_Z, v));
@@ -109,18 +139,18 @@ export const window = defineOperator({
       const nodes = pts.map(W);
       put({ id: `${p.name}_${id}`, kind: "polyline", profile, nodes, start: nodes[0], end: nodes[nodes.length - 1], up: normal, ...(color ? { color } : {}) });
     };
-    straight("frameBottom", frameProfile, [-right, bottom], [right, bottom]);
-    straight("frameRight", frameProfile, [right, bottom], [right, top]);
-    straight("frameTop", frameProfile, [right, top], [-right, top]);
-    straight("frameLeft", frameProfile, [-right, top], [-right, bottom]);
+    straight("frameBottom", horizontalProfile, [-right, bottom], [right, bottom]);
+    straight("frameRight", verticalProfile, [right, bottom], [right, top]);
+    straight("frameTop", horizontalProfile, [right, top], [-right, top]);
+    straight("frameLeft", verticalProfile, [-right, top], [-right, bottom]);
     arch("outerArch", frameProfile, outer);
-    straight("post", postProfile, [0, bottom], [0, top]);
-    straight("ribRight", ribProfile, [innerHalf, bottom], [innerHalf, spring]);
-    straight("ribLeft", ribProfile, [-innerHalf, bottom], [-innerHalf, spring]);
+    straight("post", postProfile, [0, inBottom], [0, inTop]);
+    straight("ribRight", ribProfile, [innerHalf, inBottom], [innerHalf, spring]);
+    straight("ribLeft", ribProfile, [-innerHalf, inBottom], [-innerHalf, spring]);
     arch("innerArch", ribProfile, inner);
-    // At the springing, each side: from the foot of the outer arch to the foot of the inner one.
-    straight("springRight", ribProfile, [right, spring], [innerHalf, spring]);
-    straight("springLeft", ribProfile, [-innerHalf, spring], [-right, spring]);
+    // At the springing, each side: from the frame side to the foot of the inner arch.
+    straight("springRight", ribProfile, [inRight, spring], [innerHalf, spring]);
+    straight("springLeft", ribProfile, [-innerHalf, spring], [-inRight, spring]);
     // Diagonals at 45 degrees either side of the post, splitting the band between the arches into four sectors:
     // equal ones of a round arch, seen projected when the arches are elliptical (both at the same parametric angle).
     straight("diagonalRight", ribProfile, inner[segments / 4], outer[segments / 4]);
@@ -128,13 +158,14 @@ export const window = defineOperator({
 
     // Panels: plates centred on the window plane.
     const glass = p.glass ?? {};
+    const glassLook = ctx.glass(p.glass, `${path}.glass`, WINDOW_GLASS);
     const solid = p.solid ?? {};
     const glassThickness = ctx.optionalLength(glass.thickness, `${path}.glass.thickness`) ?? 12;
     const solidThickness = ctx.optionalLength(solid.thickness, `${path}.solid.thickness`) ?? 40;
     let g = 0;
     const pane = (pts: readonly P[]) => put({
       id: `${p.name}_glass_${g++}`, kind: "plate", corners: pts.map(W), thickness: glassThickness,
-      color: glass.color ?? [0.8, 0.9, 0.95], alpha: glass.alpha ?? 0.35, reflection: glass.reflection ?? 0.5,
+      ...glassLook,
     });
     let f = 0;
     const fill = (pts: readonly P[]) => put({
@@ -142,9 +173,9 @@ export const window = defineOperator({
       color: solid.color ?? color ?? [0.9, 0.9, 0.88], alpha: 1,
     });
 
-    // Below the springing: four panes between the frame, the ribs and the post.
-    const lines = [-right, -innerHalf, 0, innerHalf, right];
-    for (let i = 0; i < 4; i++) pane([[lines[i], bottom], [lines[i + 1], bottom], [lines[i + 1], spring], [lines[i], spring]]);
+    // Below the springing: four panes between the frame sides, the ribs and the post.
+    const lines = [-inRight, -innerHalf, 0, innerHalf, inRight];
+    for (let i = 0; i < 4; i++) pane([[lines[i], inBottom], [lines[i + 1], inBottom], [lines[i + 1], spring], [lines[i], spring]]);
     // Inside the inner arch, either side of the post.
     const crown = Math.round(segments / 2);
     const innerCrown: P = [0, spring + innerRise];
@@ -155,9 +186,9 @@ export const window = defineOperator({
     for (let q = 0; q < 4; q++) {
       pane([...outer.slice(q * quarter, (q + 1) * quarter + 1), ...inner.slice(q * quarter, (q + 1) * quarter + 1).reverse()]);
     }
-    // Spandrels: one solid piece in each top corner, between the frame and the outer arch.
-    fill([[right, top], [0, top], ...outer.slice(0, crown + 1).reverse()]);
-    fill([[-right, top], ...outer.slice(crown).reverse(), [0, top]]);
+    // Spandrels: one solid piece in each top corner of the opening, between the frame and the outer arch.
+    fill([[inRight, inTop], [0, inTop], ...outer.slice(0, crown + 1).reverse(), [inRight, spring]]);
+    fill([[-inRight, inTop], [-inRight, spring], ...outer.slice(crown).reverse(), [0, inTop]]);
 
     ctx.put(p.name, { kind: "members", ids }, path);
   },
@@ -225,7 +256,7 @@ export const archSurface = defineOperator({
       /** Arches (default: the rib profile). */
       arch: ProfileRef.optional(),
     }).strict(),
-    glass: z.object({ thickness: Length.optional(), color: Color.optional(), alpha: Num.optional(), reflection: Num.optional() }).strict().optional(),
+    glass: GlassSpec.optional(),
     solid: z.object({ thickness: Length.optional(), color: Color.optional() }).strict().optional(),
     color: Color.optional(),
   }).strict(),
@@ -377,6 +408,7 @@ export const archSurface = defineOperator({
     arches.forEach((pts, i) => pieces(`arch${i + 1}`, archProfile, pts));
 
     const glass = p.glass ?? {};
+    const glassLook = ctx.glass(p.glass, `${path}.glass`, WINDOW_GLASS);
     const solid = p.solid ?? {};
     const glassThickness = ctx.optionalLength(glass.thickness, `${path}.glass.thickness`) ?? 12;
     const solidThickness = ctx.optionalLength(solid.thickness, `${path}.solid.thickness`) ?? 40;
@@ -390,7 +422,7 @@ export const archSurface = defineOperator({
       if (pts.length < 3 || area(pts) < 1) return;
       put({
         id: `${p.name}_glass_${g++}`, kind: "plate", corners: pts.map(W), thickness: glassThickness,
-        color: glass.color ?? [0.8, 0.9, 0.95], alpha: glass.alpha ?? 0.35, reflection: glass.reflection ?? 0.5,
+        ...glassLook,
       });
     };
     let f = 0;
@@ -462,7 +494,7 @@ export const archWindow = defineOperator({
       /** Radial and vertical ribs (default: the arch profile). */
       rib: ProfileRef.optional(),
     }).strict(),
-    glass: z.object({ thickness: Length.optional(), color: Color.optional(), alpha: Num.optional(), reflection: Num.optional() }).strict().optional(),
+    glass: GlassSpec.optional(),
     solid: z.object({ thickness: Length.optional(), color: Color.optional() }).strict().optional(),
     color: Color.optional(),
   }).strict(),
@@ -560,6 +592,7 @@ export const archWindow = defineOperator({
     for (let k = 1; k < strips; k++) straight(`rib${k}`, ribProfile, [ribU[k], 0], [ribU[k], innerAt(ribU[k])]);
 
     const glass = p.glass ?? {};
+    const glassLook = ctx.glass(p.glass, `${path}.glass`, WINDOW_GLASS);
     const solid = p.solid ?? {};
     const glassThickness = ctx.optionalLength(glass.thickness, `${path}.glass.thickness`) ?? 12;
     const solidThickness = ctx.optionalLength(solid.thickness, `${path}.solid.thickness`) ?? 40;
@@ -569,7 +602,7 @@ export const archWindow = defineOperator({
     let g = 0;
     const pane = (pts: readonly P[]) => put({
       id: `${p.name}_glass_${g++}`, kind: "plate", corners: distinct(pts).map(W), thickness: glassThickness,
-      color: glass.color ?? [0.8, 0.9, 0.95], alpha: glass.alpha ?? 0.35, reflection: glass.reflection ?? 0.5,
+      ...glassLook,
     });
     let f = 0;
     const fill = (pts: readonly P[]) => put({
