@@ -10,6 +10,7 @@ import { createEnvironment } from "./render/environment";
 import { createSpectator } from "./render/spectator";
 import { createStatsOverlay } from "./render/stats";
 import { installIvyToggle } from "./render/ivyLayer";
+import { restoreCameraFromUrl, trackCameraInUrl } from "./render/cameraUrl";
 import type { View } from "./models/view";
 import { buildCuritibaV2, curitibaV2View } from "./models/curitibaV2";
 import { buildCrystalPalace, crystalPalaceView } from "./models/crystalPalace";
@@ -64,6 +65,9 @@ export async function createScene(engine: Engine, canvas: HTMLCanvasElement): Pr
   camera.wheelDeltaPercentage = 0.02;
   camera.panningSensibility = 20;
   camera.attachControl(canvas, true);
+  // "?cam=" keeps the view across reloads.
+  restoreCameraFromUrl(camera);
+  trackCameraInUrl(camera);
 
   // First-person fly camera: "C" toggles, WASD moves, mouse looks.
   const spectator = createSpectator(scene, canvas, camera);

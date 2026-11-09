@@ -5,6 +5,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { DepthOfFieldEffectBlurLevel } from "@babylonjs/core/PostProcesses/depthOfFieldEffect";
 import type { DefaultRenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline";
 import { circleOfConfusionPixelShader } from "@babylonjs/core/Shaders/circleOfConfusion.fragment";
+import { setUrlParam } from "./urlState";
 
 /** Blur at infinity, 0..1 of the blur kernel; it grows from zero at the focus distance. */
 const MAX_BLUR = 0.5;
@@ -23,8 +24,8 @@ ShaderStore.ShadersStore[circleOfConfusionPixelShader.name] = circleOfConfusionP
 /**
  * Sharp up to the focus distance, increasingly soft beyond it. Both cameras focus on the orbit
  * target, so switching keeps the focus and flying up to the model brings it closer. Glass
- * writes no depth, so it takes the blur of whatever is behind it. Press "B" to toggle;
- * "?dof=off" starts with it off.
+ * writes no depth, so it takes the blur of whatever is behind it. Press "B" to toggle, kept in
+ * the URL as "?dof=off" so a reload keeps it off.
  */
 export function setupDepthOfField(scene: Scene, pipeline: DefaultRenderingPipeline, orbit: ArcRotateCamera) {
   pipeline.depthOfFieldBlurLevel = DepthOfFieldEffectBlurLevel.Medium;
@@ -44,6 +45,8 @@ export function setupDepthOfField(scene: Scene, pipeline: DefaultRenderingPipeli
   });
 
   window.addEventListener("keydown", (e) => {
-    if (e.key === "b" || e.key === "B") pipeline.depthOfFieldEnabled = !pipeline.depthOfFieldEnabled;
+    if (e.key !== "b" && e.key !== "B") return;
+    pipeline.depthOfFieldEnabled = !pipeline.depthOfFieldEnabled;
+    setUrlParam("dof", pipeline.depthOfFieldEnabled ? null : "off");
   });
 }

@@ -22,10 +22,19 @@ export const Vec3Spec = z.tuple([Length, Length, Length]);
 export const P2Spec = z.tuple([Length, Length]);
 export const Color = z.tuple([Num, Num, Num]);
 
+/**
+ * A direction in a glass surface's section: `[inward, up]` (e.g. [0, 1] vertical, [1, 1] at 45
+ * degrees), the name of one in `tangents`, or the older local `[0, inward, up]`.
+ */
+export const Tangent2Spec = z.tuple([Num, Num]);
+export const TangentRef = z.union([z.string(), Tangent2Spec, z.tuple([Num, Num, Num])]);
+export type TangentRefSpec = z.infer<typeof TangentRef>;
+
 export const ProfileSpec = z.union([
   z.object({ circle: Length, segments: Num.int().min(3).optional() }).strict(),
   z.object({ rect: z.tuple([Length, Length]) }).strict(),
   z.object({ square: Length }).strict(),
+  z.object({ regular: Num.int().min(3), radius: Length }).strict(),
 ]);
 /** A profile: the name of one in `profiles`, or an inline specification. */
 export const ProfileRef = z.union([z.string(), ProfileSpec]);
@@ -62,7 +71,7 @@ export const Padding = z.union([
 export const SurfaceTypeSpec = z.object({
   extends: z.string().optional(),
   ribStep: Length.optional(),
-  ribsOnGrid: z.boolean().optional(),
+  ribsOnGrid: z.union([z.boolean(), z.literal("symmetric")]).optional(),
   padding: Padding.optional(),
   tile: TileSpec.optional(),
   profiles: z.object({
@@ -208,6 +217,17 @@ export const View = z.object({
 export const OperationSpec = z.object({ op: z.string(), name: z.string().optional() }).passthrough();
 export type OperationSpecType = z.infer<typeof OperationSpec>;
 
+/**
+ * A reusable assembly: its own outlines and build steps, written in its local coordinates (as if
+ * placed at the origin, unrotated). A `group` step builds it and places the result.
+ */
+export const GroupSpec = z.object({
+  description: z.string().optional(),
+  /** Outlines seen only inside the group; they may shadow the document's. */
+  plan: z.record(PlanSpec).optional(),
+  build: z.array(OperationSpec),
+}).strict();
+
 export const StructureDocument = z.object({
   name: z.string(),
   description: z.string().optional(),
@@ -222,8 +242,12 @@ export const StructureDocument = z.object({
   stairs: z.record(StairTypeSpec).optional(),
   /** Named heights, usable wherever a length is expected. */
   levels: z.record(Length).optional(),
+  /** Named section tangents `[inward, up]`, usable wherever a surface tangent is expected. */
+  tangents: z.record(Tangent2Spec).optional(),
   /** Named outlines, in order: one may refer to those before it. */
   plan: z.record(PlanSpec).optional(),
+  /** Reusable assemblies, placed by `group` steps. */
+  groups: z.record(GroupSpec).optional(),
   build: z.array(OperationSpec),
 }).strict();
 export type StructureDocumentType = z.infer<typeof StructureDocument>;

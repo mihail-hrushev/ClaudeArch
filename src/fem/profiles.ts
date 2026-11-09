@@ -50,3 +50,11 @@ export function squareProfile(size: number): Profile {
     ],
   };
 }
+
+/** Regular polygon with flat-shaded sides, `radius` to a corner (first corner on local +y). */
+export function regularProfile(sides: number, radius: number): Profile {
+  return {
+    name: `P${sides}x${2 * radius}`,
+    outline: circleProfile(radius, sides).outline,
+  };
+}

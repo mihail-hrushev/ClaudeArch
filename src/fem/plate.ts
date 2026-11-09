@@ -15,6 +15,46 @@ export function plateNormal(c: readonly Vec3[]): Vec3 {
   return normalize([nx, ny, nz]);
 }
 
+type P2 = readonly [number, number];
+const cross2 = (o: P2, a: P2, b: P2) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+
+/**
+ * Triangles of a simple polygon given in its plane, keeping its winding: a fan when it is
+ * convex, ear clipping otherwise (e.g. a pane between two arches).
+ */
+export function triangulate(pts: readonly P2[]): [number, number, number][] {
+  const m = pts.length;
+  let area = 0;
+  for (let i = 0; i < m; i++) area += pts[i][0] * pts[(i + 1) % m][1] - pts[(i + 1) % m][0] * pts[i][1];
+  const sign = area < 0 ? -1 : 1;
+  const turn = (i: number, j: number, k: number) => sign * cross2(pts[i], pts[j], pts[k]);
+  const fan = (): [number, number, number][] => Array.from({ length: Math.max(0, m - 2) }, (_, i) => [0, i + 1, i + 2]);
+  if (pts.every((_, i) => turn((i + m - 1) % m, i, (i + 1) % m) >= -1e-9)) return fan();
+
+  const left = pts.map((_, i) => i);
+  const out: [number, number, number][] = [];
+  const inside = (q: P2, a: number, b: number, d: number) =>
+    turn(a, b, d) > 0 && sign * cross2(pts[a], pts[b], q) > 1e-9 && sign * cross2(pts[b], pts[d], q) > 1e-9 && sign * cross2(pts[d], pts[a], q) > 1e-9;
+  let guard = m * m;
+  while (left.length > 3 && guard-- > 0) {
+    const k = left.length;
+    let clipped = false;
+    for (let x = 0; x < k; x++) {
+      const a = left[(x + k - 1) % k], b = left[x], d = left[(x + 1) % k];
+      if (turn(a, b, d) <= 1e-12) continue;
+      if (left.some((v) => v !== a && v !== b && v !== d && inside(pts[v], a, b, d))) continue;
+      out.push([a, b, d]);
+      left.splice(x, 1);
+      clipped = true;
+      break;
+    }
+    if (!clipped) break;
+  }
+  if (left.length === 3) out.push([left[0], left[1], left[2]]);
+  else for (let i = 1; i < left.length - 1; i++) out.push([left[0], left[i], left[i + 1]]);
+  return out;
+}
+
 /** How often the bevel width is halved for a piece too small to take it, before it is dropped. */
 const BEVEL_RETRIES = 6;
 
@@ -63,7 +103,7 @@ export function plateSolid(plate: PlateElement): MeshData {
       mesh.normals.push(normal[0], normal[1], normal[2]);
       mesh.uvs.push(uvs[i][0], uvs[i][1]);
     });
-    for (let i = 1; i < pts.length - 1; i++) mesh.indices.push(base, base + i, base + i + 1);
+    for (const [a, b, d] of triangulate(uvs)) mesh.indices.push(base + a, base + b, base + d);
   };
 
   // In-plane frame of the mid-surface (h ∥ n, so top and bottom share the corners' uvs).

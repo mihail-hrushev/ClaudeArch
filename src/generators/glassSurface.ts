@@ -92,9 +92,11 @@ export interface GlassSurfaceParams {
   /**
    * Main ribs on the tile grid: with `tile.align` set, the ribs stand on the column joints of
    * the aligned grid nearest to every `ribStep` from its anchor (the joint nearest the centre
-   * for a centred grid), so no rib divides a tile. Without `tile.align` it has no effect.
+   * for a centred grid), so no rib divides a tile. `"symmetric"`: a centred grid puts a joint (and a
+   * rib) on the centre line rather than a tile, and no rib is snapped back from on or past an edge.
+   * Without `tile.align` it has no effect.
    */
-  readonly ribsOnGrid?: boolean;
+  readonly ribsOnGrid?: boolean | "symmetric";
   readonly tile: {
     /** Along X. */
     readonly width: number;
@@ -225,9 +227,19 @@ function stations(total: number, step: number, fit: "cut" | "equal"): number[] {
 const MIN_EDGE = 0.25;
 
 /** Grid lines over lo … hi, both included: whole steps from the `anchor` side, or centred. */
-function gridLines(lo: number, hi: number, step: number, anchor: "start" | "center" | "end", fit: "cut" | "equal"): number[] {
+function gridLines(
+  lo: number, hi: number, step: number, anchor: "start" | "center" | "end", fit: "cut" | "equal", jointAtCentre = false,
+): number[] {
   const total = hi - lo;
   if (fit === "equal") return stations(total, step, "equal").map((q) => lo + q);
+  // Centred on a joint (main ribs on the grid: one stands on the centre line), whole tiles out to each side.
+  if (anchor === "center" && jointAtCentre) {
+    const mid = (lo + hi) / 2;
+    let each = Math.floor(total / 2 / step + 1e-9);
+    const rest = total / 2 - each * step;
+    if (each > 0 && rest > 1e-9 * step && rest < MIN_EDGE * step) each -= 1;
+    return [lo, ...Array.from({ length: 2 * each + 1 }, (_, i) => mid + (i - each) * step), hi];
+  }
   let whole = Math.floor(total / step + 1e-9);
   let rest = total - whole * step;
   // Centred: no thin strips at the edges; one tile less makes the edge pieces wider instead.
@@ -243,7 +255,9 @@ function gridLines(lo: number, hi: number, step: number, anchor: "start" | "cent
  * Rib stations inside 0 … width on the grid joints: from the anchor joint, the joint nearest to
  * every multiple of `step` in both directions (the grid's outer lines are its extent, not joints).
  */
-function ribsOnGrid(lines: readonly number[], width: number, step: number, anchor: "start" | "center" | "end", tol: number): number[] {
+function ribsOnGrid(
+  lines: readonly number[], width: number, step: number, anchor: "start" | "center" | "end", tol: number, symmetric = false,
+): number[] {
   const joints = lines.slice(1, -1);
   if (!joints.length) return [];
   const middle = (lines[0] + lines[lines.length - 1]) / 2;
@@ -254,6 +268,8 @@ function ribsOnGrid(lines: readonly number[], width: number, step: number, ancho
     for (let k = sign > 0 && anchor !== "end" && anchor !== "start" ? 0 : 1; ; k++) {
       const target = origin + sign * k * step;
       if (target < lines[0] - step / 2 || target > lines[lines.length - 1] + step / 2) break;
+      // Symmetric: on or past an edge the edge itself carries the surface, no rib snapped back to the last joint.
+      if (symmetric && !(target > lines[0] + tol && target < lines[lines.length - 1] - tol)) break;
       stations.push(nearest(target));
     }
   }
@@ -519,12 +535,12 @@ export function glassSurface(name: string, params: GlassSurfaceParams): GlassSur
     : stations(section.length, rowStep, fit);
   const rows = rowS.length - 1;
   const columnLines = extent
-    ? gridLines(extent.x0, extent.x1, tile.width, alignX === "left" ? "start" : alignX === "right" ? "end" : "center", fit)
+    ? gridLines(extent.x0, extent.x1, tile.width, alignX === "left" ? "start" : alignX === "right" ? "end" : "center", fit, p.ribsOnGrid === "symmetric" && !p.ribStations)
     : null;
   const ribX = p.ribStations
     ? [0, ...p.ribStations, width]
     : p.ribsOnGrid && columnLines
-      ? [0, ...ribsOnGrid(distinct(columnLines, tol), width, p.ribStep, alignX === "left" ? "start" : alignX === "right" ? "end" : "center", tol), width]
+      ? [0, ...ribsOnGrid(distinct(columnLines, tol), width, p.ribStep, alignX === "left" ? "start" : alignX === "right" ? "end" : "center", tol, p.ribsOnGrid === "symmetric"), width]
       : stations(width, p.ribStep, "cut");
 
   /** Inside the cuts and outside the openings; margin > 0 also rejects points on a boundary. */

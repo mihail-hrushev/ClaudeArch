@@ -4,7 +4,7 @@
  * collects the elements and instances that become the model.
  */
 import type { Element, Model } from "../fem/types";
-import { type Profile, circleProfile, rectangleProfile, squareProfile } from "../fem/profiles";
+import { type Profile, circleProfile, rectangleProfile, regularProfile, squareProfile } from "../fem/profiles";
 import { type Instance, assemble } from "../fem/placement";
 import { removeDuplicateMembers } from "../fem/dedupe";
 import { type Vec3, add, sub, scale, dot } from "../fem/vec";
@@ -17,8 +17,7 @@ import type { HandrailParams } from "../generators/handrail";
 import type { StairParams } from "../generators/stair";
 import type {
   CutSpecType, LengthSpec, OpeningSpecType, PlanSpecType, PointSpecType, ProfileRefSpec, StructureDocumentType, SurfaceTypeSpecType,
-  TileSpecType,
-} from "./document";
+  TileSpecType, TangentRefSpec } from "./document";
 
 export class BuildError extends Error {
   constructor(message: string, readonly path: string) {
@@ -80,16 +79,37 @@ export type BuildResult =
 export class BuildContext {
   readonly elements: Element[] = [];
   readonly instances: Instance[] = [];
-  readonly results = new Map<string, BuildResult>();
+  readonly results: Map<string, BuildResult>;
   readonly color: Vec3 | undefined;
-  private readonly plans = new Map<string, Plan>();
-  private readonly profiles = new Map<string, Profile>();
-  private readonly surfaceTypes = new Map<string, SurfaceType>();
+  /** How many groups deep this context builds (0: the document itself). */
+  readonly depth: number;
+  private readonly plans: Map<string, Plan>;
+  private readonly profiles: Map<string, Profile>;
+  private readonly surfaceTypes: Map<string, SurfaceType>;
   private readonly ids = new Set<string>();
 
-  constructor(readonly doc: StructureDocumentType) {
+  /** The document's context, or with `parent` a group's: it sees what the parent has, and keeps what it adds. */
+  constructor(readonly doc: StructureDocumentType, parent?: BuildContext) {
     this.color = doc.color;
-    for (const [name, spec] of Object.entries(doc.plan ?? {})) this.plans.set(name, this.makePlan(name, spec));
+    this.depth = parent ? parent.depth + 1 : 0;
+    this.results = new Map(parent?.results);
+    this.plans = new Map(parent?.plans);
+    this.profiles = parent?.profiles ?? new Map();
+    this.surfaceTypes = parent?.surfaceTypes ?? new Map();
+    if (!parent) for (const [name, spec] of Object.entries(doc.plan ?? {})) this.plans.set(name, this.makePlan(name, spec));
+  }
+
+  /** A context for building a group: its own outlines, elements and results. */
+  child(plans: Record<string, PlanSpecType> | undefined, path: string): BuildContext {
+    const c = new BuildContext(this.doc, this);
+    for (const [name, spec] of Object.entries(plans ?? {})) {
+      try {
+        c.plans.set(name, c.makePlan(name, spec));
+      } catch (e) {
+        throw e instanceof BuildError ? new BuildError(e.message, `${path}.plan.${name}`) : e;
+      }
+    }
+    return c;
   }
 
   // ---- lengths ---------------------------------------------------------------------------------
@@ -115,6 +135,16 @@ export class BuildContext {
     return [this.length(spec[0], `${path}[0]`), this.length(spec[1], `${path}[1]`), this.length(spec[2], `${path}[2]`)];
   }
 
+  /** A section tangent as the local [0, inward, up] of a glass surface. */
+  tangent(spec: TangentRefSpec, path: string): Vec3 {
+    if (typeof spec === "string") {
+      const named = this.doc.tangents?.[spec];
+      if (!named) throw new BuildError(`unknown tangent "${spec}"`, path);
+      return [0, named[0], named[1]];
+    }
+    return spec.length === 2 ? [0, spec[0], spec[1]] : [spec[0], spec[1], spec[2]];
+  }
+
   p2(spec: readonly [LengthSpec, LengthSpec], path: string): P2 {
     return [this.length(spec[0], `${path}[0]`), this.length(spec[1], `${path}[1]`)];
   }
@@ -132,6 +162,7 @@ export class BuildContext {
       return made;
     }
     if ("circle" in ref) return circleProfile(this.length(ref.circle, `${path}.circle`), ref.segments);
+    if ("regular" in ref) return regularProfile(ref.regular, this.length(ref.radius, `${path}.radius`));
     if ("rect" in ref) return rectangleProfile(this.length(ref.rect[0], `${path}.rect[0]`), this.length(ref.rect[1], `${path}.rect[1]`));
     return squareProfile(this.length(ref.square, `${path}.square`));
   }

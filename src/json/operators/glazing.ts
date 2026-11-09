@@ -6,7 +6,7 @@ import { type Vec3, add, sub, scale, dot, cross, normalize, len, WORLD_Z } from 
 import { type P2, type Side, at } from "../../fem/plan";
 import { type CutPlane, type GlassSurface, type GlassSurfaceParams, glassSurface } from "../../generators/glassSurface";
 import { type BuildContext, BuildError, type Plan, type SurfaceType } from "../context";
-import { CutSpec, Length, Num, OpeningSpec, PointSpec, SurfaceTypeSpec, TileAlign, Vec3Spec, Padding } from "../document";
+import { CutSpec, Length, Num, OpeningSpec, PointSpec, SurfaceTypeSpec, TileAlign, Vec3Spec, Padding, TangentRef } from "../document";
 import { defineOperator } from "../operator";
 
 /** Fields every glazing operator takes: the surface type and what it may override per use. */
@@ -19,7 +19,7 @@ const Glazing = {
   bays: z.string().optional(),
   /** Whole bays: the rib step is rounded so the ribs divide the width evenly (default true). */
   evenBays: z.boolean().optional(),
-  ribsOnGrid: z.boolean().optional(),
+  ribsOnGrid: z.union([z.boolean(), z.literal("symmetric")]).optional(),
   align: TileAlign.optional(),
   padding: Padding.optional(),
   cuts: z.array(CutSpec).optional(),
@@ -101,14 +101,14 @@ export const surface = defineOperator({
     alongX: PointSpec,
     alongZ: PointSpec,
     /** Section tangent at the base, in the local frame (default [0, 0, 1]). */
-    tangent: Vec3Spec.optional(),
+    tangent: TangentRef.optional(),
     /** Direction the glass faces, away from the structure (default: horizontal, outwards). */
     facing: Vec3Spec.optional(),
   }).strict(),
   run(ctx, p, path) {
     const block = place(ctx, p.name, surfaceParams(ctx, p, path, {
       base: ctx.point(p.base, `${path}.base`), alongX: ctx.point(p.alongX, `${path}.alongX`), alongZ: ctx.point(p.alongZ, `${path}.alongZ`),
-      tangent: p.tangent && ctx.vec3(p.tangent, `${path}.tangent`), facing: p.facing && ctx.vec3(p.facing, `${path}.facing`),
+      tangent: p.tangent === undefined ? undefined : ctx.tangent(p.tangent, `${path}.tangent`), facing: p.facing && ctx.vec3(p.facing, `${path}.facing`),
     }));
     ctx.put(p.name, { kind: "surfaces", blocks: [block] }, path);
   },

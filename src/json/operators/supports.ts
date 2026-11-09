@@ -185,7 +185,8 @@ const ARCH_SAMPLES = 64;
 
 export const arches = defineOperator({
   name: "arches",
-  description: "Arches between each two consecutive columns of a columns result (around in a ring unless open), or from each column to the nearest of another result: semicircular, or segmental with a rise, springing at a level, with their crowns at one, or raised until they just touch what they stand `under`.",
+  description: "Arches between each two consecutive columns of a columns result (around in a ring unless open), or from each column to the nearest of another result: semicircular, or segmental with a rise, springing at a level, with their crowns at one, or raised until they just touch what they stand `under`; " +
+    "with both `spring` and `under`, half ellipses springing at that level, as tall as just touches.",
   schema: z.object({
     op: z.literal("arches"),
     name: z.string(),
@@ -193,7 +194,7 @@ export const arches = defineOperator({
     /** Pair each column of `between` with the nearest column of this result instead of the next one. */
     to: z.string().optional(),
     profile: ProfileRef,
-    /** Springing level of the arch axis. */
+    /** Springing level of the arch axis; with `under` as well, the arches are half ellipses reaching up to it. */
     spring: Length.optional(),
     /** Or the level of the crown of the arch axis: each arch springs its own rise (half its span when semicircular) below it. */
     crown: Length.optional(),
@@ -214,7 +215,9 @@ export const arches = defineOperator({
   run(ctx, p, path) {
     const profile = ctx.profile(p.profile, `${path}.profile`);
     const given = [p.spring, p.crown, p.under].filter((v) => v !== undefined).length;
-    if (given !== 1) throw new BuildError("give exactly one of spring, crown or under", path);
+    const elliptic = p.spring !== undefined && p.under !== undefined && p.crown === undefined;
+    if (given !== 1 && !elliptic) throw new BuildError("give exactly one of spring, crown or under (or spring and under: elliptical)", path);
+    if (elliptic && p.rise !== undefined) throw new BuildError("an elliptical arch (spring and under) takes no rise", path);
     const spring = ctx.optionalLength(p.spring, `${path}.spring`);
     const crown = ctx.optionalLength(p.crown, `${path}.crown`);
     const rise = ctx.optionalLength(p.rise, `${path}.rise`);
@@ -231,6 +234,28 @@ export const arches = defineOperator({
       const [from, to] = [move(a), move(b)];
       const chord = sub(to, from);
       const half = len(chord) / 2;
+      const limitAt = (j: number) => {
+        const q = add(from, scale(chord, j / ARCH_SAMPLES));
+        return (underAt ? underAt(q) : a.top + ((b.top - a.top) * j) / ARCH_SAMPLES + underColumns!) - back;
+      };
+      if (elliptic) {
+        // Half ellipse over the chord from `spring`, as tall as keeps its back under the limit everywhere.
+        const tall = Math.min(...Array.from({ length: ARCH_SAMPLES - 1 }, (_, k) => {
+          const j = k + 1;
+          const t = (2 * j) / ARCH_SAMPLES - 1;
+          return (limitAt(j) - spring!) / Math.sqrt(1 - t * t);
+        }));
+        if (!(tall > 0)) throw new BuildError(`arch ${i}: springs at ${spring} above what it stands under`, path);
+        const pieces = 2 * Math.max(4, Math.ceil((Math.PI * Math.max(half, tall)) / segment / 2));
+        const nodes = Array.from({ length: pieces + 1 }, (_, j) => {
+          const t = (Math.PI * j) / pieces;
+          return lifted(add(from, scale(chord, (1 - Math.cos(t)) / 2)), spring! + tall * Math.sin(t));
+        });
+        const across = normalize([-chord[1], chord[0], 0]);
+        return ctx.addElement({
+          id: `${p.name}_${i}`, kind: "polyline", nodes, start: nodes[0], end: nodes[pieces], up: across, profile, ...(color ? { color } : {}),
+        }).id;
+      }
       const r = rise ?? half;
       // Circle of the arch over its chord: radius and the centre's depth below the springing.
       const radius = (half * half + r * r) / (2 * r);

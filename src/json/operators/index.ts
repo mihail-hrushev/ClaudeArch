@@ -7,12 +7,16 @@ import { glazingOperators } from "./glazing";
 import { supportOperators } from "./supports";
 import { circulationOperators } from "./circulation";
 import { layoutOperators } from "./layout";
+import { openingOperators } from "./openings";
+import { groupOperators } from "./groups";
 
 export const OPERATORS: readonly Operator[] = [
   ...glazingOperators,
   ...supportOperators,
   ...circulationOperators,
   ...layoutOperators,
+  ...openingOperators,
+  ...groupOperators,
 ];
 
 export const operatorByName = new Map(OPERATORS.map((op) => [op.name, op]));

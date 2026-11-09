@@ -4,7 +4,7 @@ import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 export interface SpectatorOptions {
-  /** Base speed in scene units per second (default 300). */
+  /** Base speed in scene units per second (default 500). */
   readonly speed?: number;
   /** Mouse look sensitivity in radians per pixel (default 0.0025). */
   readonly sensitivity?: number;
@@ -29,7 +29,7 @@ const FOV_MAX = 2.8;
  * First-person spectator (fly) camera for the Z-up scene, toggled with "C".
  *  - W / S: forward / back along the view direction, A / D: strafe
  *  - E or Space: up, Q or Ctrl: down (world Z)
- *  - Shift: 4× speed, mouse wheel: change base speed
+ *  - Shift: 4× speed, [ / ]: lower / raise the base speed (starts at 500)
  *  - Mouse: click the canvas to capture the pointer and look around (Esc releases it);
  *    without capture, drag with the left button to look.
  * In both cameras, hold R / V to widen / narrow the field of view (shared between them).
@@ -50,7 +50,7 @@ export function createSpectator(
   camera.fov = orbit.fov;
 
   const sensitivity = opts.sensitivity ?? 0.0025;
-  let speed = opts.speed ?? 300;
+  let speed = opts.speed ?? 500;
   let yaw = 0; // around Z, from +X towards +Y
   let pitch = 0; // above the horizon
   let active = false;
@@ -89,7 +89,7 @@ export function createSpectator(
   const showHint = () => {
     hint.textContent =
       `fly  WASD move · E/Space up · Q/Ctrl down · Shift fast\n` +
-      `     click: capture mouse (Esc frees) · wheel: speed ${speed.toFixed(0)} · R/V: fov ${camera.fov.toFixed(2)} · C: orbit`;
+      `     click: capture mouse (Esc frees) · [ ]: speed ${speed.toFixed(0)} · R/V: fov ${camera.fov.toFixed(2)} · C: orbit`;
   };
 
   function enter() {
@@ -127,6 +127,11 @@ export function createSpectator(
     }
     if (FOV_KEYS.includes(e.code) && !e.ctrlKey && !e.metaKey && !e.altKey) fovDown.add(e.code);
     if (!active || e.metaKey || e.altKey) return;
+    if ((e.code === "BracketLeft" || e.code === "BracketRight") && !e.ctrlKey) {
+      speed = Math.max(10, Math.min(5000, speed * (e.code === "BracketRight" ? 1.2 : 1 / 1.2)));
+      showHint();
+      return;
+    }
     if (MOVE_KEYS.includes(e.code)) {
       down.add(e.code);
       e.preventDefault(); // Space scrolling, Ctrl shortcuts
@@ -153,17 +158,6 @@ export function createSpectator(
     if (!active) return;
     if (document.pointerLockElement === canvas || dragging) look(e.movementX, e.movementY);
   });
-  canvas.addEventListener(
-    "wheel",
-    (e) => {
-      if (!active) return;
-      e.preventDefault();
-      speed = Math.max(10, Math.min(5000, speed * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
-      showHint();
-    },
-    { passive: false },
-  );
-
   scene.onBeforeRenderObservable.add(() => {
     const direction = (fovDown.has("KeyR") ? 1 : 0) - (fovDown.has("KeyV") ? 1 : 0);
     if (direction === 0) {

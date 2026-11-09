@@ -40,7 +40,7 @@ the layout engine, the surface types are the stylesheet.
   "name": "pavilion",
   "color": [0.97, 0.97, 0.95],                       // default colour of ribs, frames, supports
   "view": { "target": [0, 0, 500], "radius": 3200, "alpha": 125, "beta": 70 },   // degrees
-  "profiles": { "rib": { "rect": ["50mm", "140mm"] }, "column": { "circle": "150mm" }, "post": { "square": "60mm" } },
+  "profiles": { "rib": { "rect": ["50mm", "140mm"] }, "column": { "circle": "150mm" }, "post": { "square": "60mm" } },   // also { "regular": 6, "radius": … }: flat sides
   "glass":    { "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "gap": "15mm", "alpha": 0.5, "reflection": 0.5 } },
   "surfaces": {
     "wall": { "ribStep": "1750mm", "tile": { "preset": "clear", "align": "top-center" },
@@ -52,6 +52,7 @@ the layout engine, the surface types are the stylesheet.
   "stairs":    { "main": { "width": "1200mm", "riser": "200mm", "tread": "220mm", "treadThickness": "40mm",
                            "platform": { "width": "1200mm", "length": "1600mm" }, "profiles": { "stringer": "stringer", "post": "column" }, "handrail": "gallery" } },
   "levels": { "hallEaves": "6m", "towerTop": "11m" },
+  "tangents": { "vault": [0.7, 1] },                  // section tangents [inward, up]: [0, 1] vertical, [1, 1] 45 degrees
   "plan": {                                           // in order: one may refer to those before it
     "tower": { "regular": 8, "apothem": "4.2m" },     // or "radius"; "center", "rotation" (degrees)
     "hall":  { "hull": ["tower"], "margin": "3m" },   // convex hull around outlines, moved out
@@ -65,6 +66,9 @@ the layout engine, the surface types are the stylesheet.
                                                       // `apseSides` flat facets (0: square); a missing arm closes straight,
                                                       // divided at the corners of a crossing `crossing` wide
     "lake":  { "ellipse": ["90m", "40m"], "sides": 48, "center": [0, "-37m"] }
+  },
+  "groups": {                                        // reusable assemblies, see Groups below
+    "porch": { "plan": { "porch": { "rect": ["10m", "4m"], "center": [0, "-7m"] } }, "build": [ … ] }
   },
   "build": [ … ]                                      // operations, in order
 }
@@ -84,11 +88,11 @@ points), a `height` result (a roof: `{ "on": … }` heights) or a `members` resu
 Glazing operators (`surface`, `walls`, `roof`, `dome`, `floor`, `deck`) share these fields: `type` (a
 surface type name or an inline one), and per use `ribStep`, `ribStations`, `bays` (the name of a
 `bays` result: ribs on its bay lines), `evenBays` (default true: the rib step is rounded so whole
-bays divide the width), `ribsOnGrid`, `align`, `padding`, `cuts`, `openings`.
+bays divide the width), `ribsOnGrid` (true: main ribs on the tile joints nearest each step; `"symmetric"`: a centred grid puts a joint and a rib on the centre line, and no rib is added near an edge), `align`, `padding`, `cuts`, `openings`.
 
 | op | what it does | main fields |
 |---|---|---|
-| `surface` | one glass surface placed explicitly | `base`, `alongX`, `alongZ`, `tangent?`, `facing?` |
+| `surface` | one glass surface placed explicitly | `base`, `alongX`, `alongZ`, `tangent?` (the section's direction at the base: `[inward, up]` towards `alongZ`, a name from `tangents`, or the older `[0, inward, up]`), `facing?` |
 | `walls` | upright walls along the sides of a plan (square at reflex corners) | `plan`, `sides?`, `foot?` (height), `top` (height), `overlap?`, `inset?`, `bays?` (`{columns, clear?, within?}`: one surface per bay between the columns standing in the wall line) |
 | `roof` | a face rising from every side, run on to the valley past a reflex corner; leaves a height field | `plan`, `eaves`, `rise?`, `run?`, `slope?` (degrees at the eaves, or `"level"`: the arc levels off at the top of its run), `valleys?` (false: faces stop square at reflex corners), `bays?` (as for walls) |
 | `dome` | a faceted dome over a plan; leaves a height field | `plan`, `base`, `rise`, `apex?`, `springing?` (90 = vertical, `"flat"`, or degrees), `opening?` (width of the flat opening left at the top) |
@@ -96,7 +100,7 @@ bays divide the width), `ribsOnGrid`, `align`, `padding`, `cuts`, `openings`.
 | `deck` | tiled deck bays between two outlines, e.g. a walkway between beam lines: one bay per side of the outer outline, closed along the inner one | `outer`, `inner`, `level` (walking surface) |
 | `bays` | whole bays of about `step` on every side of a plan; leaves a bays result that glazing (`bays`) and columns (`at.bays`) on the same sides of any layer take their stations from | `plan`, `step`, `measure?` (`{plan, sides?}`: count on the matching side of another outline), `even?` (sides kept as equal shares rather than lines carried across), `margin?` |
 | `columns` | columns at corners, along sides, opposite other columns, or at points, with a base and a capital if asked; leaves a columns result | `at` (`{plan, corners?, inset?}` / `{plan, sides?, spacing or bays (a count, or a bays result), inset?, includeCorners?}` / `{plan, sides?, opposite, inset?, includeCorners?}`: at the corners and opposite the columns of a result or the convex corners of an outline, each projected onto its nearest side / `{points}`), `profile`, `foot?`, `top` (height), `tops?` (`[{corners?, sides?, top}]`), `base?` / `capital?` (`{profile, height}`), `orient?`, `up?` |
-| `arches` | arches between consecutive columns (a ring unless `open`), or from each column to the nearest of another result | `between`, `to?`, `profile`, one of `spring`, `crown` (level of the crowns) or `under` (a height, or `{columns: offset}`: the line between the column tops; the arch is raised until its back just touches it), `rise?` (segmental), `inward?` |
+| `arches` | arches between consecutive columns (a ring unless `open`), or from each column to the nearest of another result | `between`, `to?`, `profile`, one of `spring`, `crown` (level of the crowns) or `under` (a height, or `{columns: offset}`: the line between the column tops; the arch is raised until its back just touches it), or both `spring` and `under` (half ellipses from that level, as tall as just touches), `rise?` (segmental), `inward?` |
 | `beams` | beams between consecutive columns, or to the nearest of another result, at a level or following a roof | `between`, `to?`, `profile`, `level` (height), `open?`, `inward?` |
 | `member` | one straight / arc / polyline member | `profile`, `start`, `end`, `startTangent?` (arc), `nodes?` (polyline), `up?` |
 | `plate` | one flat convex plate | `corners`, `thickness`, `color?`, `alpha?`, `reflection?`, `bevel?` |
@@ -107,10 +111,32 @@ bays divide the width), `ribsOnGrid`, `align`, `padding`, `cuts`, `openings`.
 | `outline` | a new plan outline from columns, points or a cut outline | `columns?` / `points?` / `plan?` + `cuts?`, `towards?` + `share?` (corners moved a share of the way to the nearest column of a result, e.g. the centre line between two column rings) |
 | `handrail` | handrail sections along plan sides or between two points | `type`, `along` (`{plan, sides?, level, inward?}` / `{from, to}`), `padding?`, `railBeamDrop?`, `gaps?` (points results, e.g. stairs, marking stretches left open) |
 | `stair` | a stair along a centre line; leaves a points result marking where it arrives | `type`, `path`, `floor?`, `height`, `landing?` (`"bend"`: the middle platform centred on the first bend), `arrival?` (`{length?, exit?: {side, length?, reach, column, arch?}}`: a way off the arrival beside a column, the column's quarter arches carrying it) |
+| `group` | places a group from `groups`, built in its local coordinates, turned about the vertical and moved; ids and results get the prefix `<name>/` | `use`, `rotate?` (degrees), `about?`, `move?` |
+| `window` | a framed window in the line of a plan side: middle post, a rib in each half, an outer elliptical arch on the frame sides and an inner one on the ribs, both springing at `spring`, a horizontal rib on each side joining their feet and a diagonal one at 45 degrees (parametric: the projection of a round arch); glass inside the outer arch, solid spandrels outside it | `side` (`["plan", i]`), `at?`, `inward?`, `foot`, `width`, `height` or `top` (a level), `spring?` (a level, like `foot`; default half-way up), `innerRise?` (share of the outer rise, default 0.5), `arcSegments?` (rounded up to a multiple of 4), `profiles` (`{frame, post?, rib?}`), `glass?`, `solid?` |
+| `archSurface` | an upright glazed screen between two points: a frame from `foot` to `top`, vertical ribs every `ribStep` (rounded to equal bays), each bay crowned by a semicircular arch whose crown touches the frame top; glass below and inside the arches, solid spandrels above them | `from`, `to` (points; plan position only), `inset?` (shortens both ends), `foot`, `top`, `ribStep?` (default 400 mm), `arcSegments?`, `floor?` (arcs `{from, to, tangent?}` written like a surface section, e.g. a roof meeting the screen: everything below them is cut away, the bottom frame follows them and the ribs stand on them), `profiles` (`{frame, rib?, arch?}`), `glass?`, `solid?` |
+| `archWindow` | a large round-headed window between two points: jambs from `foot` to the springing, an outer and an inner semicircular arch; the band between them split into equal sectors by radial ribs, the inner half disc into equal vertical strips whose ribs run on down to the sill; glass throughout | `from`, `to` (points; plan position only, centred between them), `foot`, `outerRadius?` (default half the span), `innerRadius`, `ringSegments?` (default 15), `ribs?` (default 12), `spring?` or `ceiling?` (arcs `{from, to, tangent?}` like `floor` above: the window rises until the outer arch's back just touches them; the gap above is filled solid unless `spandrels: false`), `arcSegments?` (pieces per sector, default 4), `profiles` (`{frame, arch?, rib?}`), `glass?`, `solid?` |
 
 `npm run structure -- --operators` prints the current list from the code, which is the authority.
 
-## Adding an operator
+## Groups
+
+A group is an assembly written once and placed many times, e.g. a porch on every side of a
+square hall. Its `plan` and `build` are written in the group's **local coordinates**: as if it
+stood at the origin unrotated, so the porch of the front side. Everything outside the group
+(the document's outlines, levels, profiles, columns and other results) is read in those same
+coordinates, so a group may refer to `["cornerColumns", 0]` as the front-left column.
+
+```jsonc
+{ "op": "group", "name": "right", "use": "porch", "rotate": 90 }   // also "about": [x, y], "move": [x, y, z]
+```
+
+A `group` step builds the group's steps in a context of their own (outlines and results made
+inside stay inside), then turns the finished elements `rotate` degrees counter-clockwise about
+the vertical through `about` and moves them by `move`. Element ids get the prefix `<name>/`
+(`right/porchLeft/rib1`), and the columns, points and members results made inside become
+`<name>/<result>`, placed. Groups may place other groups.
+
+
 
 An operator is a relationship between instruments that the JSON cannot express with names and
 numbers: "walls stand on that roof", "columns at these corners, clear of the ribs". Put it in a
