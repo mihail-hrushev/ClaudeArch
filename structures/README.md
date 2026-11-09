@@ -43,11 +43,13 @@ the layout engine, the surface types are the stylesheet.
 ```jsonc
 {
   "name": "pavilion",
-  "color": [0.97, 0.97, 0.95],                       // default colour of ribs, frames, supports
-  "metallic": 0.95, "roughness": 0.05,                // optional: every member a glTF metal (color then linear), e.g. [0, 0, 0] for black ironwork
+  "material": "steel",                                // the framing (ribs, frames, supports) from "materials" below; "color", "metallic",
+                                                      // "roughness" here would override its fields (older documents give just "color")
   "view": { "target": [0, 0, 500], "radius": 3200, "alpha": 125, "beta": 70 },   // degrees
   "profiles": { "rib": { "rect": ["50mm", "140mm"] }, "column": { "circle": "150mm" }, "post": { "square": "60mm" } },   // also { "regular": 6, "radius": … }: flat sides
-  "materials": {                                      // glass looks: color, alpha (0 invisible … 1 opaque),
+  "materials": {                                      // looks by name: color, alpha (0 invisible … 1 opaque),
+    "steel":       { "color": [0, 0, 0], "metallic": 0.95, "roughness": 0.05 },        // a glTF metal (see below): black ironwork
+    "masonry":     { "color": [0.34, 0.34, 0.33], "metallic": 0, "roughness": 0.9 },   // matte, for bands
     "blueGlass":   { "color": [0.62, 0.85, 0.82], "alpha": 0.5, "reflection": 0.5 },   // reflection (share of the sky, 0 … 1),
     "orangeGlass": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [1, 0.5, 0] }  // emissive (glow);
   },                                                  // this one is a glTF material (see below): it exports to a .glb unchanged
@@ -117,14 +119,14 @@ bays divide the width), `ribsOnGrid` (true: main ribs on the tile joints nearest
 | `deck` | tiled deck bays between two outlines, e.g. a walkway between beam lines: one bay per side of the outer outline, closed along the inner one | `outer`, `inner`, `level` (walking surface) |
 | `bays` | whole bays of about `step` on every side of a plan; leaves a bays result that glazing (`bays`) and columns (`at.bays`) on the same sides of any layer take their stations from | `plan`, `step`, `measure?` (`{plan, sides?}`: count on the matching side of another outline), `even?` (sides kept as equal shares rather than lines carried across), `margin?` |
 | `columns` | columns at corners, along sides, opposite other columns, or at points, with a base and a capital if asked; leaves a columns result | `at` (`{plan, corners?, inset?}` / `{plan, sides?, spacing or bays (a count, or a bays result), inset?, includeCorners?}` / `{plan, sides?, opposite, inset?, includeCorners?}`: at the corners and opposite the columns of a result or the convex corners of an outline, each projected onto its nearest side / `{points}`), `profile`, `foot?`, `top` (height), `tops?` (`[{corners?, sides?, top}]`), `base?` / `capital?` (`{profile, height}`, or a list of such tiers from the bottom up), `orient?`, `up?` |
-| `arches` | arches between consecutive columns (a ring unless `open`), or from each column to the nearest of another result | `between`, `to?`, `profile`, one of `spring`, `crown` (level of the crowns) or `under` (a height, or `{columns: offset}`: the line between the column tops; the arch is raised until its back just touches it), or both `spring` and `under` (half ellipses from that level, as tall as just touches), `rise?` (segmental), `inward?` |
+| `arches` | arches between consecutive columns (a ring unless `open`), or from each column to the nearest of another result | `between`, `to?`, `profile`, one of `spring`, `crown` (level of the crowns) or `under` (a height, or `{columns: offset}`: the line between the column tops; the arch is raised until its back just touches it), or both `spring` and `under` (half ellipses from that level, as tall as just touches), `rise?` (segmental), `inward?`, `shafts?` (true: the arches stop short of the columns and a slender shaft of the arch profile stands at each end, from the column's foot to the highest springing there; shared by all arches ending at that spot) |
 | `beams` | beams between consecutive columns, or to the nearest of another result, at a level or following a roof | `between`, `to?`, `profile`, `level` (height), `open?`, `inward?` |
 | `member` | one straight / arc / polyline member | `profile`, `start`, `end`, `startTangent?` (arc), `nodes?` (polyline), `up?` |
 | `plate` | one flat convex plate | `corners`, `thickness`, `color?`, `alpha?`, `reflection?`, `bevel?` |
 | `slab` | a plate covering a plan outline | `plan`, `level`, `thickness`, `color?` |
 | `pyramid` | solid plates from the sides of a plan up to an apex over its centre: a lantern roof, a spire | `plan`, `base` (height), `apex`, `thickness`, `color?` |
 | `box` | an axis-aligned solid block | `x`, `y`, `z` ranges, `color?` |
-| `band` | a mitred band along the sides of a plan: plinth, frieze, cornice | `plan`, `thickness`, `z`, `inset?`, `color?`, `metallic?`, `roughness?` (its own glTF look, e.g. matte masonry in a document of black ironwork) |
+| `band` | a mitred band along the sides of a plan: plinth, frieze, cornice | `plan`, `thickness`, `z`, `inset?`, `material?` (from `materials`, e.g. masonry in a document of steel), `color?`, `metallic?`, `roughness?` (override it) |
 | `outline` | a new plan outline from columns, points or a cut outline | `columns?` / `points?` / `plan?` + `cuts?`, `towards?` + `share?` (corners moved a share of the way to the nearest column of a result, e.g. the centre line between two column rings) |
 | `handrail` | handrail sections along plan sides or between two points | `type`, `along` (`{plan, sides?, level, inward?}` / `{from, to}`), `padding?`, `railBeamDrop?`, `gaps?` (points results, e.g. stairs, marking stretches left open) |
 | `stair` | a stair along a centre line; leaves a points result marking where it arrives | `type`, `path`, `floor?`, `height`, `landing?` (`"bend"`: the middle platform centred on the first bend), `arrival?` (`{length?, exit?: {side, length?, reach, column, arch?}}`: a way off the arrival beside a column, the column's quarter arches carrying it) |

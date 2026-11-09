@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import type { Element, PlateElement } from "../../fem/types";
-import { rectangleProfile } from "../../fem/profiles";
+import { type Profile, rectangleProfile } from "../../fem/profiles";
 import { type Vec3, add, sub, scale, dot, cross, normalize, len, WORLD_Z } from "../../fem/vec";
 import { type Side, at } from "../../fem/plan";
 import { type BuildContext, BuildError, type PlacedColumn } from "../context";
@@ -199,6 +199,42 @@ function spans(ctx: BuildContext, name: string, closed: boolean | undefined, pat
 /** Points along an arch where it is tested against what it stays under. */
 const ARCH_SAMPLES = 64;
 
+/** Half extent of a profile in any direction across it. */
+const reach = (outline: readonly (readonly [number, number])[]) => Math.max(...outline.map(([y, z]) => Math.max(Math.abs(y), Math.abs(z))));
+
+/**
+ * A slender column of the arch section standing against a main column, carrying the arches that
+ * end on it (see `shafts` of `arches`). Shafts are shared across operations: every arch ending at
+ * the same spot of the same column raises the one shaft there to its own springing.
+ */
+interface Shaft {
+  readonly at: Vec3;
+  readonly foot: number;
+  top: number;
+  elementId?: string;
+}
+const SHAFTS = new WeakMap<BuildContext, Map<string, Shaft>>();
+
+function standShaft(ctx: BuildContext, column: PlacedColumn, at: Vec3, top: number, profile: Profile, color: Vec3 | undefined): void {
+  let registry = SHAFTS.get(ctx);
+  if (!registry) SHAFTS.set(ctx, (registry = new Map()));
+  const key = `${column.id}|${Math.round(at[0])},${Math.round(at[1])}`;
+  const shaft = registry.get(key) ?? { at, foot: column.at[2], top: -Infinity };
+  registry.set(key, shaft);
+  if (top <= shaft.top || top <= shaft.foot) return;
+  shaft.top = top;
+  const element: Element = {
+    id: shaft.elementId ?? `${column.id}_shaft`, kind: "straight", start: lifted(at, shaft.foot), end: lifted(at, top), profile, ...(color ? { color } : {}),
+  };
+  if (shaft.elementId) {
+    // Raised by a higher arch: the one shaft grows.
+    const i = ctx.elements.findIndex((el) => el.id === shaft.elementId);
+    ctx.elements[i] = element;
+  } else {
+    shaft.elementId = ctx.addElement(element).id;
+  }
+}
+
 export const arches = defineOperator({
   name: "arches",
   description: "Arches between each two consecutive columns of a columns result (around in a ring unless open), or from each column to the nearest of another result: semicircular, or segmental with a rise, springing at a level, with their crowns at one, or raised until they just touch what they stand `under`; " +
@@ -225,6 +261,13 @@ export const arches = defineOperator({
     open: z.boolean().optional(),
     /** Horizontal offset of the arch plane from the column axes, along the columns' inward direction. */
     inward: Length.optional(),
+    /**
+     * The arches do not land on the columns: each end stops short of its column by the column's half
+     * width plus the arch's half section (or, moved `inward`, stays where it is), and a slender shaft
+     * of the arch profile stands there, from the column's foot to the springing of the highest arch
+     * on it. Arches ending at the same spot of a column, from any operation, share the shaft.
+     */
+    shafts: z.boolean().optional(),
     segment: Length.optional(),
     color: Color.optional(),
   }).strict(),
@@ -245,14 +288,26 @@ export const arches = defineOperator({
       ? ctx.length(p.under.columns, `${path}.under.columns`) : undefined;
     const underAt = p.under === undefined || underColumns !== undefined
       ? undefined : ctx.height(p.under as Parameters<typeof ctx.height>[0], `${path}.under`);
+    const archHalf = reach(profile.outline);
     const ids = spans(ctx, p.between, !p.open, `${path}.between`, p.to).map(([a, b], i) => {
       const move = (c: PlacedColumn) => (c.inward ? add(c.at, scale(c.inward, inward)) : c.at);
-      const [from, to] = [move(a), move(b)];
+      let [from, to] = [move(a), move(b)];
+      if (p.shafts) {
+        // Each end stops short of its column (unless already moved off its axis) where its shaft stands.
+        const along = normalize([to[0] - from[0], to[1] - from[1], 0]);
+        const short = (c: PlacedColumn, q: Vec3, towards: Vec3) => (c.inward && inward !== 0 ? q : add(q, scale(towards, reach(c.profile.outline) + archHalf)));
+        [from, to] = [short(a, from, along), short(b, to, scale(along, -1))];
+      }
       const chord = sub(to, from);
       const half = len(chord) / 2;
       const limitAt = (j: number) => {
         const q = add(from, scale(chord, j / ARCH_SAMPLES));
         return (underAt ? underAt(q) : a.top + ((b.top - a.top) * j) / ARCH_SAMPLES + underColumns!) - back;
+      };
+      const shafts = (springing: number) => {
+        if (!p.shafts) return;
+        standShaft(ctx, a, from, springing, profile, color);
+        standShaft(ctx, b, to, springing, profile, color);
       };
       if (elliptic) {
         // Half ellipse over the chord from `spring`, as tall as keeps its back under the limit everywhere.
@@ -268,6 +323,7 @@ export const arches = defineOperator({
           return lifted(add(from, scale(chord, (1 - Math.cos(t)) / 2)), spring! + tall * Math.sin(t));
         });
         const across = normalize([-chord[1], chord[0], 0]);
+        shafts(spring!);
         return ctx.addElement({
           id: `${p.name}_${i}`, kind: "polyline", nodes, start: nodes[0], end: nodes[pieces], up: across, profile, ...(color ? { color } : {}),
         }).id;
@@ -285,6 +341,7 @@ export const arches = defineOperator({
       })));
       const start = lifted(from, level);
       const end = lifted(to, level);
+      shafts(level);
       let startTangent: Vec3 = WORLD_Z;
       if (rise !== undefined) {
         // Segmental: the tangent at the springing makes the arc through the crown at `rise`.
@@ -500,8 +557,10 @@ export const band = defineOperator({
     z: z.tuple([Length, Length]),
     /** Move the band's centre line into the plan. */
     inset: Length.optional(),
+    /** Its own material by name from `materials`, e.g. matte masonry under a document of black ironwork; the fields below override it. */
+    material: z.string().optional(),
     color: Color.optional(),
-    /** Its own physically based look (0 … 1), e.g. matte masonry under a document of black ironwork; `color` is then linear. */
+    /** Physically based look (0 … 1); `color` is then linear. */
     metallic: Num.min(0).max(1).optional(),
     roughness: Num.min(0).max(1).optional(),
   }).strict(),
@@ -510,8 +569,11 @@ export const band = defineOperator({
     const thickness = ctx.length(p.thickness, `${path}.thickness`);
     const [z0, z1] = p.z.map((v, i) => ctx.length(v, `${path}.z[${i}]`));
     const inset = ctx.optionalLength(p.inset, `${path}.inset`) ?? 0;
-    const color = p.color ?? ctx.color;
-    const finish = p.metallic !== undefined || p.roughness !== undefined ? { metallic: p.metallic ?? 0, roughness: p.roughness ?? 1 } : {};
+    const m = p.material ? ctx.material(p.material, `${path}.material`) : {};
+    const color = p.color ?? (m.color as Vec3 | undefined) ?? ctx.color;
+    const metallic = p.metallic ?? m.metallic;
+    const roughness = p.roughness ?? m.roughness;
+    const finish = metallic !== undefined || roughness !== undefined ? { metallic: metallic ?? 0, roughness: roughness ?? 1 } : {};
     const sides = plan.sides;
     const n = sides.length;
     const selected = selectedSides(sides, p.sides);

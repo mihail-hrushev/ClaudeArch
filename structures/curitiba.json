@@ -1,7 +1,7 @@
 {
   "name": "curitiba",
   "description": "Curitiba Botanical Garden style greenhouse: three octagonal domed towers touching corner to corner on a glazed ground floor with a curved roof, an ambulatory of columns and arches around them carrying a walk floor reached by stairs.",
-  "color": [0, 0, 0], "metallic": 0.95, "roughness": 0.05,
+  "material": "steel",
   "view": { "target": [0, 0, 600], "radius": 3900, "alpha": 127.24, "beta": 72 },
   "profiles": {
     "rib": { "rect": ["50mm", "140mm"] },
@@ -20,6 +20,7 @@
     "stringer": { "rect": ["60mm", "240mm"] }
   },
   "materials": {
+    "steel": { "color": [0.8, 0.8, 0.8], "metallic": 0.05, "roughness": 0.01 },
     "blueGlass2": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [1, 0.5, 0] },
     "blueGlass": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [0.3, 0.3, 0.3] }
   },
@@ -92,15 +93,15 @@
     { "op": "dome", "name": "tower1Dome", "plan": "tower1", "type": "towerDome", "base": "towerTop", "rise": "5.6m" },
     { "op": "dome", "name": "tower2Dome", "plan": "tower2", "type": "towerDome", "base": "towerTop", "rise": "5.6m" },
     { "op": "columns", "name": "towerColumns", "at": { "plan": "towers" }, "profile": "column", "top": { "on": "groundRoof", "offset": "-60mm" } },
-    { "op": "arches", "name": "footArches", "between": "towerColumns", "profile": "arch", "under": { "columns": "-80mm" } },
+    { "op": "arches", "name": "footArches", "between": "towerColumns", "shafts": true, "profile": "arch", "under": { "columns": "-80mm" } },
     { "op": "beams", "name": "roofBeams", "between": "wallColumns", "to": "towerColumns", "profile": "beam", "level": { "on": "groundRoof", "offset": "-120mm" } },
-    { "op": "arches", "name": "roofArches", "between": "wallColumns", "to": "towerColumns", "profile": "arch", "under": { "on": "groundRoof", "offset": "-240mm" } },
+    { "op": "arches", "name": "roofArches", "between": "wallColumns", "shafts": true, "to": "towerColumns", "profile": "arch", "under": { "on": "groundRoof", "offset": "-240mm" } },
     { "op": "beams", "name": "eavesBeams", "between": "wallColumns", "profile": "beam", "level": "eavesBeams", "inward": "100mm" },
-    { "op": "arches", "name": "groundArches", "between": "wallColumns", "profile": "arch", "under": "5650mm", "inward": "100mm" },
+    { "op": "arches", "name": "groundArches", "between": "wallColumns", "shafts": true, "profile": "arch", "under": "5650mm", "inward": "100mm" },
     { "op": "outline", "name": "walkEdge", "columns": "wallColumns", "towards": "towerColumns" },
     { "op": "beams", "name": "floorBeams", "between": "wallColumns", "to": "towerColumns", "profile": "beam", "level": "floorBeams" },
-    { "op": "arches", "name": "floorArches", "between": "wallColumns", "to": "towerColumns", "profile": "arch", "under": "floorBeamSoffit" },
-    { "op": "arches", "name": "walkArches", "between": "towerColumns", "profile": "arch", "under": "floorBeamSoffit" },
+    { "op": "arches", "name": "floorArches", "between": "wallColumns", "shafts": true, "to": "towerColumns", "profile": "arch", "under": "floorBeamSoffit" },
+    { "op": "arches", "name": "walkArches", "between": "towerColumns", "shafts": true, "profile": "arch", "under": "floorBeamSoffit" },
     { "op": "deck", "name": "walkDeck", "type": "deck", "outer": "walkEdge", "inner": "towers", "level": "walk", "evenBays": false },
     { "op": "handrail", "name": "walkOuter", "type": "walk", "along": { "plan": "walkEdge", "level": "walk" } },
     { "op": "stair", "name": "stair2", "type": "tower", "height": "walk", "landing": "bend",

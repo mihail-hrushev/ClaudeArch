@@ -1,7 +1,7 @@
 {
   "name": "crystal_palace_v2",
   "description": "Crystal palace, second design, built step by step. Stage 1: an 8 x 8 m square (first 10 x 10 m) on the ground with four hexagonal columns 10 m tall (600 mm across the corners), one at each corner. Stage 2: one 2 x 2 m arched window standing free, its base centre 2 m above the origin. Stage 3: a hipped glass dome of four surfaces from the column tops to a point 17 m above the origin. Stage 4: a gabled porch roof 4 m deep in front, from mid-height of the front columns up to a ridge at the column tops, with two windows in each of its sides. Stage 5: the porch, its windows, the lower roofs and the glass beam as one group placed on all four sides. Stage 6: a second porch bay with rectangular lower roofs, each ending on a lower wall of two windows. Stage 7: the porch split into its first segment, middle bays and end; the side arms (porchLong) one bay longer than the back arm, as in the real plan.",
-  "color": [0, 0, 0], "metallic": 0.95, "roughness": 0.05,
+  "material": "steel",
   "view": { "target": [0, 0, 500], "radius": 2600, "alpha": 125, "beta": 70 },
   "profiles": {
     "column": { "regular": 6, "radius": "200mm" },
@@ -25,6 +25,8 @@
     "porchArch": { "circle": "60mm" }
   },
   "materials": {
+    "steel": { "color": [0, 0, 0], "metallic": 0.95, "roughness": 0.05 },
+    "masonry": { "color": [0.34, 0.34, 0.33], "metallic": 0, "roughness": 0.9 },
     "orangeGlass": { "color": [0.62, 0.85, 0.82], "alpha": 0.5, "reflection": 0.5 },
     "blueGlass": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [1, 0.5, 0] }
   },
@@ -103,7 +105,7 @@
         { "op": "window", "name": "porchLeftWindow2", "sidesOnEdges": true, "side": ["porch", 3], "part": [1, 2], "foot": "porchWindowFoot", "top": "columnMiddle", "spring": "upperWindowSpring",
           "profiles": { "frame": "windowFrame", "frameVertical": "windowFrameVertical", "post": "windowPost", "rib": "windowRib" },
           "glass": { "thickness": "10mm", "material": "blueGlass" }, "solid": { "thickness": "20mm" } },
-        { "op": "band", "name": "belt", "plan": "porch", "sides": [1, 3], "thickness": "150mm", "z": ["beltFoot", "porchWindowFoot"], "color": [0.34, 0.34, 0.33], "metallic": 0, "roughness": 0.9 }
+        { "op": "band", "name": "belt", "plan": "porch", "sides": [1, 3], "thickness": "150mm", "z": ["beltFoot", "porchWindowFoot"], "material": "masonry" }
       ]
     },
     "porchSegment": {
@@ -172,7 +174,7 @@
         { "op": "window", "name": "lowerWallLeft2", "sidesOnEdges": true, "side": ["lowerWalls", 3], "part": [1, 2], "foot": "foundationTop", "top": "lowRoofEave", "spring": "lowWindowSpring",
           "profiles": { "frame": "windowFrame", "frameVertical": "windowFrameVertical", "post": "windowPost", "rib": "windowRib" },
           "glass": { "thickness": "10mm", "material": "blueGlass" }, "solid": { "thickness": "20mm" } },
-        { "op": "band", "name": "foundation", "plan": "lowerWalls", "sides": [1, 3], "thickness": "250mm", "z": [0, "foundationTop"], "color": [0.34, 0.34, 0.33], "metallic": 0, "roughness": 0.9 }
+        { "op": "band", "name": "foundation", "plan": "lowerWalls", "sides": [1, 3], "thickness": "250mm", "z": [0, "foundationTop"], "material": "masonry" }
       ]
     },
     "porchEnd": {
@@ -216,7 +218,7 @@
         { "op": "window", "name": "endWindow6", "sidesOnEdges": true, "side": ["porchEnd", 2], "part": [1, 2], "foot": "porchWindowFoot", "top": "columnMiddle", "spring": "upperWindowSpring",
           "profiles": { "frame": "windowFrame", "frameVertical": "windowFrameVertical", "post": "windowPost", "rib": "windowRib" },
           "glass": { "thickness": "10mm", "material": "blueGlass" }, "solid": { "thickness": "20mm" } },
-        { "op": "band", "name": "endBelt", "plan": "porchEnd", "sides": [0, 1, 2], "thickness": "150mm", "z": ["beltFoot", "porchWindowFoot"], "color": [0.34, 0.34, 0.33], "metallic": 0, "roughness": 0.9 },
+        { "op": "band", "name": "endBelt", "plan": "porchEnd", "sides": [0, 1, 2], "thickness": "150mm", "z": ["beltFoot", "porchWindowFoot"], "material": "masonry" },
         { "op": "surface", "name": "endLowRoof1", "type": "glazing", "evenBays": false,
           "base": { "corner": ["outerWall", 5], "z": "lowRoofEave" }, "alongX": { "corner": ["outerWall", 6], "z": "lowRoofEave" },
           "alongZ": { "side": ["outerWall", 5], "inward": "aisle", "z": "beltFoot" }, "extend": "half / 4", "tangent": "lowRoofRingTangent",
@@ -277,7 +279,7 @@
         { "op": "window", "name": "outerWallWindow12", "sidesOnEdges": true, "side": ["outerWall", 5], "part": [1, 2], "foot": "foundationTop", "top": "lowRoofEave", "spring": "lowWindowSpring",
           "profiles": { "frame": "windowFrame", "frameVertical": "windowFrameVertical", "post": "windowPost", "rib": "windowRib" },
           "glass": { "thickness": "10mm", "material": "blueGlass" }, "solid": { "thickness": "20mm" } },
-        { "op": "band", "name": "endFoundation", "plan": "outerWall", "sides": [0, 1, 2, 3, 4, 5], "thickness": "250mm", "z": [0, "foundationTop"], "color": [0.34, 0.34, 0.33], "metallic": 0, "roughness": 0.9 }
+        { "op": "band", "name": "endFoundation", "plan": "outerWall", "sides": [0, 1, 2, 3, 4, 5], "thickness": "250mm", "z": [0, "foundationTop"], "material": "masonry" }
       ]
     },
     "porch": {
@@ -324,7 +326,7 @@
       "cuts": [{ "point": { "column": ["cornerColumns", 3], "z": "columnTop" }, "normal": [-1, -1, 0] },
                { "point": { "column": ["cornerColumns", 0], "z": "columnTop" }, "normal": [-1, 1, 0] }] },
     { "op": "group", "name": "front", "use": "porchSegment" },
-    { "op": "band", "name": "frontBelt", "plan": "frontPorch", "sides": [0], "thickness": "150mm", "z": ["beltFoot", "porchWindowFoot"], "color": [0.34, 0.34, 0.33], "metallic": 0, "roughness": 0.9 },
+    { "op": "band", "name": "frontBelt", "plan": "frontPorch", "sides": [0], "thickness": "150mm", "z": ["beltFoot", "porchWindowFoot"], "material": "masonry" },
     { "op": "archWindow", "name": "frontWindow", "from": ["-half", "-half - bay", 0], "to": ["half", "-half - bay", 0], "foot": "porchWindowFoot",
       "outerRadius": "half", "innerRadius": "half - 600mm", "ringSegments": 15, "ribs": 12,
       "ceiling": [

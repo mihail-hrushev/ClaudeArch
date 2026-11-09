@@ -267,17 +267,20 @@ export const GroupSpec = z.object({
 export const StructureDocument = z.object({
   name: z.string(),
   description: z.string().optional(),
-  /** Default colour of ribs, frames and supports. */
+  /** The material of ribs, frames and supports, by name from `materials` (e.g. "steel"). */
+  material: z.string().optional(),
+  /** Default colour of ribs, frames and supports (overrides the material's). */
   color: Color.optional(),
   /**
-   * With these (0 … 1) every member is a physically based material exactly as in glTF, e.g. black
-   * ironwork: `color` is then linear (glTF baseColorFactor) and the members are lit by the HDRI sky.
+   * With these (0 … 1; they override the material's) every member is a physically based material
+   * exactly as in glTF, e.g. black ironwork: `color` is then linear (glTF baseColorFactor) and the
+   * members are lit by the HDRI sky.
    */
   metallic: Num.min(0).max(1).optional(),
   roughness: Num.min(0).max(1).optional(),
   view: View.optional(),
   profiles: z.record(ProfileSpec).optional(),
-  /** Glass materials, referenced by name from glass presets, tiles and window glass. */
+  /** Materials by name: glass for presets, tiles and window glass; the framing (`material` above) and bands. */
   materials: z.record(MaterialSpec).optional(),
   /** Glass (or tile) presets, referenced by `tile.preset`. */
   glass: z.record(TileSpec).optional(),

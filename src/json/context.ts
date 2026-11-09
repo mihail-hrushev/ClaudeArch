@@ -81,6 +81,8 @@ export class BuildContext {
   readonly instances: Instance[] = [];
   readonly results: Map<string, BuildResult>;
   readonly color: Vec3 | undefined;
+  /** The document's physically based finish for members (see `metallic`/`roughness` on the document), if any. */
+  readonly finish: { metallic: number; roughness: number } | undefined;
   /** How many groups deep this context builds (0: the document itself). */
   readonly depth: number;
   private readonly plans: Map<string, Plan>;
@@ -90,7 +92,12 @@ export class BuildContext {
 
   /** The document's context, or with `parent` a group's: it sees what the parent has, and keeps what it adds. */
   constructor(readonly doc: StructureDocumentType, parent?: BuildContext) {
-    this.color = doc.color;
+    // The framing's look: its named material, with the document's own fields over it.
+    const m = doc.material ? this.material(doc.material, "material") : {};
+    this.color = doc.color ?? (m.color as Vec3 | undefined);
+    const metallic = doc.metallic ?? m.metallic;
+    const roughness = doc.roughness ?? m.roughness;
+    this.finish = metallic === undefined && roughness === undefined ? undefined : { metallic: metallic ?? 0, roughness: roughness ?? 1 };
     this.depth = parent ? parent.depth + 1 : 0;
     this.results = new Map(parent?.results);
     this.plans = new Map(parent?.plans);
@@ -553,10 +560,9 @@ export class BuildContext {
   /** The finished model: instances assembled, duplicates of shared members removed. */
   model(): Model {
     const model = removeDuplicateMembers({ elements: [...assemble(this.instances).elements, ...this.elements] });
-    const { metallic, roughness } = this.doc;
-    if (metallic === undefined && roughness === undefined) return model;
+    const finish = this.finish;
+    if (!finish) return model;
     // The document's finish for every member without one of its own.
-    const finish = { metallic: metallic ?? 0, roughness: roughness ?? 1 };
     return {
       ...model,
       elements: model.elements.map((el) => (el.kind === "plate" || el.metallic !== undefined || el.roughness !== undefined ? el : { ...el, ...finish })),
