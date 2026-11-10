@@ -14,6 +14,7 @@ import {
 } from "../fem/plan";
 import type { CutPlane, GlassSurfaceParams, GlassSurface } from "../generators/glassSurface";
 import type { HandrailParams } from "../generators/handrail";
+import type { HoneycombSurfaceParams } from "../generators/honeycombSurface";
 import type { StairParams } from "../generators/stair";
 import type {
   CutSpecType, LengthSpec, OpeningSpecType, PlanSpecType, PointSpecType, ProfileRefSpec, StructureDocumentType, SurfaceTypeSpecType,
@@ -37,7 +38,11 @@ export interface Plan {
 }
 
 /** Everything a glass surface needs apart from its placement. */
-export type SurfaceType = Pick<GlassSurfaceParams, "ribStep" | "ribsOnGrid" | "padding" | "tile" | "profiles" | "ribColor" | "frameColor">;
+/** A surface type tiled with hexagons: the honeycomb's own fields (see generators/honeycombSurface). */
+export type HoneycombPattern = Pick<HoneycombSurfaceParams, "cell" | "orientation" | "offset">;
+export type SurfaceType = Pick<GlassSurfaceParams, "ribStep" | "ribsOnGrid" | "padding" | "tile" | "profiles" | "ribColor" | "frameColor"> & {
+  readonly honeycomb?: HoneycombPattern;
+};
 export type HandrailType = Omit<HandrailParams, "base" | "alongX" | "padding">;
 export type StairType = Omit<StairParams, "path" | "floor" | "height" | "arrival">;
 
@@ -323,6 +328,14 @@ export class BuildContext {
       profiles: { ...profiles, mainRib: profiles.mainRib, horizontalFrame: profiles.horizontalFrame },
       ribColor: ref.ribColor ?? base?.ribColor ?? this.color,
       frameColor: ref.frameColor ?? base?.frameColor ?? this.color,
+      honeycomb: ref.honeycomb
+        ? {
+            ...base?.honeycomb,
+            ...(ref.honeycomb.cell !== undefined ? { cell: this.length(ref.honeycomb.cell, `${path}.honeycomb.cell`) } : {}),
+            ...(ref.honeycomb.orientation ? { orientation: ref.honeycomb.orientation } : {}),
+            ...(ref.honeycomb.offset !== undefined ? { offset: this.length(ref.honeycomb.offset, `${path}.honeycomb.offset`) } : {}),
+          }
+        : base?.honeycomb,
     };
   }
 

@@ -114,6 +114,16 @@ export const SurfaceTypeSpec = z.object({
   }).strict().optional(),
   ribColor: Color.optional(),
   frameColor: Color.optional(),
+  /**
+   * Tile the surfaces of this type with flat hexagons instead of rectangles (see
+   * generators/honeycombSurface): `cell` across the flats (default the tile's width),
+   * `orientation` "pointy" or "flat", `offset` moving the glass along its normal.
+   */
+  honeycomb: z.object({
+    cell: Length.optional(),
+    orientation: z.enum(["pointy", "flat"]).optional(),
+    offset: Length.optional(),
+  }).strict().optional(),
 }).strict();
 export type SurfaceTypeSpecType = z.infer<typeof SurfaceTypeSpec>;
 

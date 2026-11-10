@@ -22,6 +22,18 @@
     }
   },
   "build": [
+    { "op": "honeycombSurface", "name": "honeyWall", "type": "honeycomb",
+      "base": [-800, 0, 700], "alongX": [0, 0, 700], "alongZ": [100, -500, 0],
+      "tangent": [-1, 0], "tangentX": [1, 0], "offset": "-90mm",
+      "cuts": [{ "point": [-800, 0, 700], "normal": [0.866025, 0.5, 0] },
+               { "point": [0, 0, 700], "normal": [-0.866025, 0.5, 0] }] },
+    
+    { "op": "honeycombSurface", "name": "honeyWall2", "type": "honeycomb",
+      "base": [-800, 0, 730], "alongX": [0, 0, 730], "alongZ": [100, 500, 1400],
+      "tangent": [1, 0], "tangentX": [1, 0],
+      "cuts": [{ "point": [-800, 0, 700], "normal": [0.866025, 0.5, 0] },
+               { "point": [0, 0, 700], "normal": [-0.866025, 0.5, 0] }] },
+
     { "op": "honeycombSurface", "name": "dome", "type": "honeycomb",
       "base": [0, 0, 0], "alongX": ["8m", 0, 0], "alongZ": [0, "3m", "5m"],
       "tangent": [0.2, 1], "tangentX": [1, -0.5],
@@ -30,7 +42,7 @@
         { "cells": [[3, 4], [5, 4]], "offset": "-250mm" }
       ] },
     { "op": "honeycombSurface", "name": "apse", "type": "honeycomb",
-      "base": ["11m", "3m", 0], "alongX": ["19m", "3m", 0], "alongZ": ["11m", "4m", "5m"],
+      "base": ["11m", "3m", 0], "alongX": ["19m", "3m", 0], "alongZ": ["11m", "6m", "6m"],
       "tangent": [0, 1], "tangentX": [0, -1], "sweep": "revolve", "orientation": "flat", "cell": "1100mm" },
     { "op": "honeycombSurface", "name": "saddle", "type": "honeycomb",
       "base": ["22m", 0, 0], "alongX": ["30m", 0, 0], "alongZ": ["22m", "3m", "5m"],

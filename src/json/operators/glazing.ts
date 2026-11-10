@@ -40,7 +40,7 @@ export function surfaceParams(
   ctx: BuildContext, p: GlazingParams, path: string,
   placement: Pick<GlassSurfaceParams, "base" | "alongX" | "alongZ" | "tangent" | "facing"> & { cuts?: readonly CutPlane[]; openings?: readonly (readonly CutPlane[])[] },
   width = len(sub(placement.alongX, placement.base)),
-): GlassSurfaceParams {
+): GlassSurfaceParams & Pick<SurfaceType, "honeycomb"> {
   const type: SurfaceType = ctx.surfaceType(p.type, `${path}.type`);
   let ribStep = p.ribStep === undefined ? type.ribStep : ctx.length(p.ribStep, `${path}.ribStep`);
   if (p.evenBays !== false && Number.isFinite(ribStep)) ribStep = width / Math.max(1, Math.round(width / ribStep));
@@ -59,9 +59,19 @@ export function surfaceParams(
   };
 }
 
-/** Builds one block, registers it and returns it. */
-export function place(ctx: BuildContext, name: string, params: GlassSurfaceParams): GlassSurface {
-  const block = glassSurface(name, params);
+/**
+ * Builds one block, registers it and returns it: a honeycomb of flat hexagons when its surface
+ * type asks for one (rib stations and tile alignment then have no meaning), else rectangular tiles.
+ */
+export function place(ctx: BuildContext, name: string, params: GlassSurfaceParams & Pick<SurfaceType, "honeycomb">): GlassSurface {
+  const { honeycomb: pattern, ...rest } = params;
+  const block = pattern
+    ? honeycomb(name, {
+        base: rest.base, alongX: rest.alongX, alongZ: rest.alongZ, tangent: rest.tangent, facing: rest.facing,
+        tile: rest.tile, profiles: rest.profiles, ribColor: rest.ribColor,
+        cuts: rest.cuts, openings: rest.openings, padding: rest.padding, ...pattern,
+      })
+    : glassSurface(name, rest);
   ctx.addInstance(block);
   return block;
 }
@@ -178,7 +188,7 @@ export const surface2 = defineOperator({
 
 export const honeycombSurface = defineOperator({
   name: "honeycombSurface",
-  description: "One glass surface curved in two directions, placed like `surface2`, tiled with flat hexagons `cell` wide across the flats: neighbouring tiles share the rib between them, an edge rib runs along each side, and `offset` / `offsets` move the glass of every tile, or of single cells, forward (positive) or back along its own normal (see generators/honeycombSurface).",
+  description: "One glass surface curved in two directions, placed like `surface2`, tiled with flat hexagons `cell` wide across the flats: neighbouring tiles share the rib between them, an edge rib runs along each side and along every cut (`cuts`), and `offset` / `offsets` move the glass of every tile, or of single cells, forward (positive) or back along its own normal (see generators/honeycombSurface).",
   schema: z.object({
     op: z.literal("honeycombSurface"),
     name: z.string(),
@@ -201,6 +211,8 @@ export const honeycombSurface = defineOperator({
     offset: Length.optional(),
     /** Offsets of single cells, `[col, row]` from 0 at the bottom left, replacing `offset` there. */
     offsets: z.array(z.object({ cells: z.array(z.tuple([z.number().int(), z.number().int()])), offset: Length }).strict()).optional(),
+    /** Planes trimming the surface, each keeping the side its normal points to; a rib runs along each (the type's `cutRib`, or the cut's own profile). */
+    cuts: z.array(CutSpec).optional(),
   }).strict(),
   run(ctx, p, path) {
     const tangentX = p.tangentX === undefined ? undefined : ctx.tangent(p.tangentX, `${path}.tangentX`);
@@ -213,6 +225,7 @@ export const honeycombSurface = defineOperator({
     try {
       block = honeycomb(p.name, {
         ...placement, tangentX: tangentX && ([tangentX[1], tangentX[2]] as const), sweep: p.sweep, tile, profiles, ribColor,
+        cuts: ctx.cuts(p.cuts, `${path}.cuts`),
         cell: ctx.optionalLength(p.cell, `${path}.cell`),
         orientation: p.orientation,
         offset: ctx.optionalLength(p.offset, `${path}.offset`),
