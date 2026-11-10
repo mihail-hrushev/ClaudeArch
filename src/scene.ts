@@ -12,6 +12,7 @@ import { createStatsOverlay } from "./render/stats";
 import { installIvyToggle } from "./render/ivyLayer";
 import { installGlbExport } from "./render/exportGlb";
 import { restoreCameraFromUrl, trackCameraInUrl } from "./render/cameraUrl";
+import { installModelPanel } from "./render/modelPanel";
 import type { View } from "./models/view";
 import { buildCuritibaV2, curitibaV2View } from "./models/curitibaV2";
 import { buildCrystalPalace, crystalPalaceView } from "./models/crystalPalace";
@@ -87,6 +88,11 @@ export async function createScene(engine: Engine, canvas: HTMLCanvasElement): Pr
   installIvyToggle(scene, model, environment);
 
   createStatsOverlay(scene);
+  // "M": the list of models; a click loads one.
+  installModelPanel([
+    { title: "Built-in", keys: MODELS.map((m) => m.key) },
+    { title: "Structures", keys: [...structureKeys].sort() },
+  ], entry.key);
 
   return scene;
 }

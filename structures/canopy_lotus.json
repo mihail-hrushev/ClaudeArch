@@ -1,0 +1,291 @@
+{
+  "name": "canopy_lotus",
+  "description": "Lotus: twelve segments of a polyarch canopy whose spines run down from a 18 m crown and flare up again at the tips (an S-curve), with 20-degree ridges along them. The valleys between segments drain onto twelve 5 m columns; the tips cantilever about 2 m past them.",
+  "material": "concrete",
+  "view": {
+    "target": [
+      0,
+      0,
+      500
+    ],
+    "radius": 7500,
+    "alpha": -110,
+    "beta": 72
+  },
+  "profiles": {
+    "branch": {
+      "rect": [
+        "150mm",
+        "300mm"
+      ]
+    },
+    "tie": {
+      "rect": [
+        "100mm",
+        "150mm"
+      ]
+    },
+    "cutRib": {
+      "rect": [
+        "250mm",
+        "700mm"
+      ]
+    },
+    "tipRib": {
+      "rect": [
+        "100mm",
+        "300mm"
+      ]
+    },
+    "column": {
+      "rect": [
+        "400mm",
+        "400mm"
+      ]
+    }
+  },
+  "materials": {
+    "concrete": {
+      "color": [
+        0.78,
+        0.76,
+        0.72
+      ],
+      "metallic": 0,
+      "roughness": 0.9
+    },
+    "blueGlass": {
+      "color": [
+        0.14,
+        0.2,
+        0.54
+      ],
+      "alpha": 0.4,
+      "metallic": 0.95,
+      "roughness": 0.01,
+      "emissive": [
+        0.3,
+        0.3,
+        0.3
+      ]
+    }
+  },
+  "glass": {
+    "pane": {
+      "width": "1.5m",
+      "length": "1m",
+      "thickness": "12mm",
+      "material": "blueGlass"
+    }
+  },
+  "surfaces": {
+    "canopy": {
+      "ribStep": "1.5m",
+      "tile": {
+        "preset": "pane"
+      },
+      "profiles": {
+        "mainRib": "branch",
+        "cutRib": "cutRib",
+        "horizontalFrame": "tie",
+        "verticalFrame": "tie"
+      }
+    }
+  },
+  "groups": {
+    "segment": {
+      "description": "One segment, written along +X: the polyarch from the centre outwards and the canopy swept along it, cut to its 30 degree wedge by two upright planes through the axis at +15 and -15 degrees, where the neighbouring segments meet it; from where each of those cuts leaves the outer edge, a tip cut runs upright to the polyarch's end, and a column stands under that end of the cut rib.",
+      "build": [
+        {
+          "op": "polyarch",
+          "name": "spine",
+          "start": [
+            0,
+            0,
+            "18m"
+          ],
+          "tangent": [
+            1,
+            0,
+            0
+          ],
+          "through": [
+            [
+              "16m",
+              0,
+              "11m"
+            ],
+            [
+              "27m",
+              0,
+              "10.5m"
+            ]
+          ]
+        },
+        {
+          "op": "polyarchSurface",
+          "name": "canopy",
+          "type": "canopy",
+          "along": "spine",
+          "reach": "6.5m",
+          "drop": "3.5m",
+          "slope": 20,
+          "cuts": [
+            {
+              "point": [
+                0,
+                0,
+                0
+              ],
+              "normal": [
+                0.258819,
+                -0.965926,
+                0
+              ]
+            },
+            {
+              "point": [
+                0,
+                0,
+                0
+              ],
+              "normal": [
+                0.258819,
+                0.965926,
+                0
+              ]
+            }
+          ],
+          "tips": {
+            "profile": "tipRib"
+          },
+          "columns": {
+            "profile": "column"
+          }
+        }
+      ]
+    }
+  },
+  "build": [
+    {
+      "op": "group",
+      "name": "segment1",
+      "use": "segment",
+      "rotate": 0,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment2",
+      "use": "segment",
+      "rotate": 30,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment3",
+      "use": "segment",
+      "rotate": 60,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment4",
+      "use": "segment",
+      "rotate": 90,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment5",
+      "use": "segment",
+      "rotate": 120,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment6",
+      "use": "segment",
+      "rotate": 150,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment7",
+      "use": "segment",
+      "rotate": 180,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment8",
+      "use": "segment",
+      "rotate": 210,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment9",
+      "use": "segment",
+      "rotate": 240,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment10",
+      "use": "segment",
+      "rotate": 270,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment11",
+      "use": "segment",
+      "rotate": 300,
+      "about": [
+        0,
+        0
+      ]
+    },
+    {
+      "op": "group",
+      "name": "segment12",
+      "use": "segment",
+      "rotate": 330,
+      "about": [
+        0,
+        0
+      ]
+    }
+  ]
+}

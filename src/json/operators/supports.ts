@@ -413,8 +413,8 @@ export const member = defineOperator({
     profile: ProfileRef,
     start: PointSpec,
     end: PointSpec,
-    /** Makes an arc: the direction the member leaves `start` in. */
-    startTangent: Vec3Spec.optional(),
+    /** Makes an arc: the direction the member leaves `start` in, or `{ after: <member> }`: the direction that member arrives at its end in, so the two run on smoothly. */
+    startTangent: z.union([Vec3Spec, z.object({ after: z.string() }).strict()]).optional(),
     /** Makes a polyline through these points (start and end included). */
     nodes: z.array(PointSpec).optional(),
     segment: Length.optional(),
@@ -434,7 +434,10 @@ export const member = defineOperator({
       el = { ...common, kind: "polyline", nodes: p.nodes.map((q, i) => ctx.point(q, `${path}.nodes[${i}]`)) };
     } else if (p.startTangent) {
       el = {
-        ...common, kind: "arc", startTangent: ctx.vec3(p.startTangent, `${path}.startTangent`),
+        ...common, kind: "arc",
+        startTangent: "after" in p.startTangent
+          ? endTangent(ctx, p.startTangent.after, `${path}.startTangent.after`)
+          : ctx.vec3(p.startTangent, `${path}.startTangent`),
         segmentLength: ctx.optionalLength(p.segment, `${path}.segment`) ?? ARC_SEGMENT,
       };
     } else {
@@ -443,6 +446,19 @@ export const member = defineOperator({
     ctx.put(p.name, { kind: "members", ids: [ctx.addElement(el).id] }, path);
   },
 });
+
+/** Direction the last member of a members result arrives at its end in. */
+function endTangent(ctx: BuildContext, name: string, path: string): Vec3 {
+  const ids = ctx.get(name, "members", path).ids;
+  const el = ctx.elements.find((e) => e.id === ids[ids.length - 1]);
+  if (!el || el.kind === "plate") throw new BuildError(`"${name}" is not a member`, path);
+  if (el.kind === "polyline") return normalize(sub(el.nodes[el.nodes.length - 1], el.nodes[el.nodes.length - 2]));
+  const chord = normalize(sub(el.end, el.start));
+  if (el.kind !== "arc") return chord;
+  // An arc arrives at its end mirrored about the chord from how it left its start.
+  const t = normalize(el.startTangent);
+  return sub(scale(chord, 2 * dot(t, chord)), t);
+}
 
 export const plate = defineOperator({
   name: "plate",
@@ -638,7 +654,145 @@ function clip(polygon: readonly Vec3[], point: Vec3, normal: Vec3): Vec3[] {
   return out;
 }
 
-export const supportOperators = [columns, arches, beams, member, plate, slab, pyramid, box, band, outline];
+/** A member's axis by arc length: its length, and point and unit tangent at a distance from its start. */
+interface Axis {
+  readonly length: number;
+  at(s: number): { point: Vec3; tangent: Vec3 };
+}
+
+function axisOf(el: Element, path: string): Axis {
+  if (el.kind === "plate") throw new BuildError(`"${el.id}" is a plate, not a member`, path);
+  const straight = (a: Vec3, b: Vec3): Axis => {
+    const length = len(sub(b, a));
+    const tangent = normalize(sub(b, a));
+    return { length, at: (s) => ({ point: add(a, scale(tangent, s)), tangent }) };
+  };
+  if (el.kind === "polyline") {
+    const pieces = el.nodes.slice(1).map((q, i) => straight(el.nodes[i], q));
+    const length = pieces.reduce((sum, q) => sum + q.length, 0);
+    return {
+      length,
+      at: (s) => {
+        for (const piece of pieces) {
+          if (s <= piece.length || piece === pieces[pieces.length - 1]) return piece.at(s);
+          s -= piece.length;
+        }
+        return pieces[0].at(0);
+      },
+    };
+  }
+  if (el.kind !== "arc") return straight(el.start, el.end);
+  const chord = sub(el.end, el.start);
+  const t = normalize(el.startTangent);
+  const bend = sub(chord, scale(t, dot(chord, t)));
+  if (len(bend) < 1e-9 * len(chord)) return straight(el.start, el.end);
+  const n = normalize(bend);
+  const phi = Math.acos(Math.max(-1, Math.min(1, dot(t, normalize(chord)))));
+  const radius = len(chord) / (2 * Math.sin(phi));
+  return {
+    length: 2 * phi * radius,
+    at: (s) => {
+      const a = s / radius;
+      return {
+        point: add(el.start, add(scale(t, radius * Math.sin(a)), scale(n, radius * (1 - Math.cos(a))))),
+        tangent: add(scale(t, Math.cos(a)), scale(n, Math.sin(a))),
+      };
+    },
+  };
+}
+
+export const branches = defineOperator({
+  name: "branches",
+  description:
+    "Smaller arches branching off members (one after another, e.g. the pieces of a long arch) every `step` along them: " +
+    "each leaves the axis square to it, on both sides (or one), and curves to its end `reach` out and `drop` down, " +
+    "both measured in the members' own frame at that point: out along their side, down against their normal (the profile's up, square to the axis), so the branches turn with the members.",
+  schema: z.object({
+    op: z.literal("branches"),
+    name: z.string(),
+    /** Members results the branches leave from, in order along the line they form. */
+    from: z.array(z.string()).min(1),
+    profile: ProfileRef,
+    /** Distance between branches along the members (the first one `step` from the start). */
+    step: Length,
+    /** How far out each branch ends, square to the members in plan. */
+    reach: Length,
+    /** How far each branch ends below its start, against the members' normal there (default 0: a straight member). */
+    drop: Length.optional(),
+    /** "both" (default), "left" or "right", looking along the members. */
+    sides: z.enum(["both", "left", "right"]).optional(),
+    /** Straight ribs joining each two neighbouring branches on a side, every `step` along them (from the members out) and at their ends. */
+    ties: z.object({ step: Length, profile: ProfileRef }).strict().optional(),
+    segment: Length.optional(),
+    color: Color.optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const profile = ctx.profile(p.profile, `${path}.profile`);
+    const step = ctx.length(p.step, `${path}.step`);
+    const reach = ctx.length(p.reach, `${path}.reach`);
+    const drop = ctx.optionalLength(p.drop, `${path}.drop`) ?? 0;
+    const segmentLength = ctx.optionalLength(p.segment, `${path}.segment`) ?? ARC_SEGMENT;
+    if (step <= 0 || reach <= 0) throw new BuildError("step and reach must be > 0", path);
+    const axes = p.from.flatMap((name, i) => ctx.get(name, "members", `${path}.from[${i}]`).ids.map((id) => {
+      const el = ctx.elements.find((e) => e.id === id);
+      if (!el) throw new BuildError(`"${name}" has no element "${id}"`, `${path}.from[${i}]`);
+      return axisOf(el, `${path}.from[${i}]`);
+    }));
+    const total = axes.reduce((sum, a) => sum + a.length, 0);
+    const signs = p.sides === "left" ? [1] : p.sides === "right" ? [-1] : [1, -1];
+    const color = p.color ?? ctx.color;
+    const ids: string[] = [];
+    /** The branches on each side, in order along the members. */
+    const rows = new Map<number, Element[]>(signs.map((sign) => [sign, []]));
+    for (let k = 1; k * step < total - 1e-6 * total; k++) {
+      let s = k * step;
+      const axis = axes.find((a) => (s <= a.length ? true : ((s -= a.length), false))) ?? axes[axes.length - 1];
+      const { point, tangent } = axis.at(s);
+      // The members' frame there: their side (square to the axis, level) and their normal (square to both, upwards).
+      const level = normalize(cross(WORLD_Z, tangent));
+      if (!Number.isFinite(level[0])) throw new BuildError(`the members run vertically ${k * step} along them: no side to branch to`, path);
+      const normal = cross(tangent, level);
+      for (const sign of signs) {
+        const out = scale(level, sign);
+        const end = add(add(point, scale(out, reach)), scale(normal, -drop));
+        const el: Element = drop === 0
+          ? { id: `${p.name}_${k}${sign > 0 ? "L" : "R"}`, kind: "straight", profile, start: point, end, ...(color ? { color } : {}) }
+          : { id: `${p.name}_${k}${sign > 0 ? "L" : "R"}`, kind: "arc", profile, start: point, end, startTangent: out, segmentLength, ...(color ? { color } : {}) };
+        ids.push(ctx.addElement(el).id);
+        rows.get(sign)!.push(el);
+      }
+    }
+    if (p.ties) {
+      const tieStep = ctx.length(p.ties.step, `${path}.ties.step`);
+      if (tieStep <= 0) throw new BuildError("ties.step must be > 0", `${path}.ties.step`);
+      const tieProfile = ctx.profile(p.ties.profile, `${path}.ties.profile`);
+      for (const [sign, row] of rows) {
+        const branchAxes = row.map((el) => axisOf(el, path));
+        for (let i = 0; i + 1 < row.length; i++) {
+          const [a, b] = [branchAxes[i], branchAxes[i + 1]];
+          const length = Math.min(a.length, b.length);
+          const at = [...Array.from({ length: Math.ceil(length / tieStep - 1e-6) }, (_, j) => (j + 1) * tieStep).filter((u) => u < length - 1e-6 * length), length];
+          at.forEach((u, j) => {
+            // At the ends, the ends themselves (branches of different lengths still close).
+            const qa = j === at.length - 1 ? a.at(a.length) : a.at(u);
+            const qb = j === at.length - 1 ? b.at(b.length) : b.at(u);
+            const along = normalize(sub(qb.point, qa.point));
+            // Square to the surface the ties and branches make, upwards.
+            const n = normalize(cross(qa.tangent, along));
+            const el: Element = {
+              id: `${p.name}_tie${sign > 0 ? "L" : "R"}${i + 1}_${j + 1}`, kind: "straight", profile: tieProfile,
+              start: qa.point, end: qb.point, up: n[2] < 0 ? scale(n, -1) : n, ...(color ? { color } : {}),
+            };
+            ids.push(ctx.addElement(el).id);
+          });
+        }
+      }
+    }
+    ctx.put(p.name, { kind: "members", ids }, path);
+  },
+});
+
+export const supportOperators = [columns, arches, beams, member, branches, plate, slab, pyramid, box, band, outline];
 
 // Keep helpers that later operators may share.
 export { lifted, halfDepth, cross };

@@ -1,0 +1,41 @@
+{
+  "name": "double_curvature_test",
+  "description": "Test of surface2: one glass surface curved in two directions. `tangent` bends the section from the base up to alongZ, `tangentX` bends the base line from the base to alongX ([1, 0] flat, [0, 1] or [0, -1] a semicircle), `sweep` slides the section along it or revolves it about its axis.",
+  "material": "steel",
+  "view": { "target": [950, 300, 250], "radius": 2800, "alpha": -60, "beta": 65 },
+  "profiles": {
+    "rib": { "rect": ["50mm", "140mm"] },
+    "cutRib": { "rect": ["80mm", "200mm"] },
+    "frame": { "rect": ["30mm", "80mm"] },
+    "mullion": { "rect": ["30mm", "60mm"] }
+  },
+  "materials": {
+    "steel": { "color": [0.8, 0.8, 0.8], "metallic": 0.05, "roughness": 0.01 },
+    "blueGlass": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [0.3, 0.3, 0.3] }
+  },
+  "glass": {
+    "clear": { "width": "500mm", "length": "1000mm", "thickness": "12mm", "material": "blueGlass", "align": "bottom-center" }
+  },
+  "surfaces": {
+    "shell": {
+      "ribStep": "1500mm",
+      "tile": { "preset": "clear" },
+      "profiles": { "mainRib": "rib", "cutRib": "cutRib", "horizontalFrame": "frame", "verticalFrame": "mullion" }
+    }
+  },
+  "build": [
+    { "op": "surface2", "name": "shell", "type": "shell",
+      "base": [0, 0, 0], "alongX": ["7000mm", 0, 0], "alongZ": [0, "4000mm", "5000mm"],
+      "tangent": [0.1, 1], "tangentX": [0.3, -1.5], "sweep": "slide",
+      "cuts": [{ "point": [0, 0, 0], "normal": [0.866025, -0.5, 0] },
+               { "point": ["7000mm", 0, 0], "normal": [-0.866025, -0.5, 0] }] },
+    { "op": "surface2", "name": "shell2", "type": "shell",
+      "base": [0, 500, 0], "alongX": ["14m", 500, 0], "alongZ": [0, 900, 500],
+      "tangent": [0, 1], "tangentX": [0.0, -1], "sweep": "revolve" },
+    { "op": "surface2", "name": "shell3", "type": "shell",
+      "base": ["12000mm", 0, 0], "alongX": ["19000mm", 0, 0], "alongZ": ["12000mm", "4000mm", "5000mm"],
+      "tangent": [0.1, 1], "tangentX": [0.5, -1.5], "sweep": "slide", "tilt": [0, 30],
+      "cuts": [{ "point": ["12000mm", 0, 0], "normal": [0.866025, -0.5, 0] },
+               { "point": ["19000mm", 0, 0], "normal": [-0.866025, -0.5, 0] }] }
+  ]
+}

@@ -5,8 +5,10 @@ import { z } from "zod";
 import { type Vec3, add, sub, scale, dot, cross, normalize, len, WORLD_Z } from "../../fem/vec";
 import { type P2, type Side, at } from "../../fem/plan";
 import { type CutPlane, type GlassSurface, type GlassSurfaceParams, extendedTop, glassSurface } from "../../generators/glassSurface";
+import { baseLineLength, glassSurface2 } from "../../generators/glassSurface2";
+import { honeycombSurface as honeycomb } from "../../generators/honeycombSurface";
 import { type BuildContext, BuildError, type Plan, type SurfaceType } from "../context";
-import { CutSpec, Length, Num, OpeningSpec, PointSpec, SurfaceTypeSpec, TileAlign, Vec3Spec, Padding, TangentRef } from "../document";
+import { CutSpec, Length, Num, OpeningSpec, PointSpec, SurfaceTypeSpec, TileAlign, Vec3Spec, Padding, Tangent2Spec, TangentRef } from "../document";
 import { defineOperator } from "../operator";
 
 /** Fields every glazing operator takes: the surface type and what it may override per use. */
@@ -30,13 +32,16 @@ type GlazingParams = z.infer<z.ZodObject<typeof Glazing>>;
 /** Height: a level, or a height field result with an offset. */
 export const Height = z.union([Length, z.object({ on: z.string(), offset: Length.optional() }).strict()]);
 
-/** The parameters of one glass surface from a glazing operator's fields and its placement. */
+/**
+ * The parameters of one glass surface from a glazing operator's fields and its placement;
+ * `width` is the length the bays divide (default: straight from the base to `alongX`).
+ */
 export function surfaceParams(
   ctx: BuildContext, p: GlazingParams, path: string,
   placement: Pick<GlassSurfaceParams, "base" | "alongX" | "alongZ" | "tangent" | "facing"> & { cuts?: readonly CutPlane[]; openings?: readonly (readonly CutPlane[])[] },
+  width = len(sub(placement.alongX, placement.base)),
 ): GlassSurfaceParams {
   const type: SurfaceType = ctx.surfaceType(p.type, `${path}.type`);
-  const width = len(sub(placement.alongX, placement.base));
   let ribStep = p.ribStep === undefined ? type.ribStep : ctx.length(p.ribStep, `${path}.ribStep`);
   if (p.evenBays !== false && Number.isFinite(ribStep)) ribStep = width / Math.max(1, Math.round(width / ribStep));
   if (!Number.isFinite(ribStep)) ribStep = width;
@@ -121,6 +126,102 @@ export const surface = defineOperator({
       }
     }
     const block = place(ctx, p.name, surfaceParams(ctx, p, path, placement));
+    ctx.put(p.name, { kind: "surfaces", blocks: [block] }, path);
+  },
+});
+
+export const surface2 = defineOperator({
+  name: "surface2",
+  description: "One glass surface curved in two directions: placed like `surface`, with `tangentX` bending its base line from the base to `alongX` into an arc the section slides along or revolves about (`sweep`), and `tilt` leaning the section by an angle that changes along it (see generators/glassSurface2).",
+  schema: z.object({
+    op: z.literal("surface2"),
+    name: z.string(),
+    ...Glazing,
+    base: PointSpec,
+    alongX: PointSpec,
+    alongZ: PointSpec,
+    /** Section tangent at the base, in the local frame (default [0, 0, 1]). */
+    tangent: TangentRef.optional(),
+    /** Direction of the base line at the base, local `[x, y]` (default [1, 0]: straight), or the name of one in `tangents`. */
+    tangentX: z.union([z.string(), Tangent2Spec]).optional(),
+    /** How the section travels along a curved base line: "slide" without turning (default), or "revolve" about the arc's axis, staying square to it. */
+    sweep: z.enum(["slide", "revolve"]).optional(),
+    /** Lean of the section in degrees, [at the base, at alongX], changing evenly along the base line; positive leans the top towards the structure (default [0, 0]). */
+    tilt: z.tuple([z.number(), z.number()]).optional(),
+    /** Direction the glass faces, away from the structure (default: horizontal, outwards). */
+    facing: Vec3Spec.optional(),
+    /** Continue the section past `alongZ` on the same arc, this much further along local Y (inwards). */
+    extend: Length.optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const tangentX = p.tangentX === undefined ? undefined : ctx.tangent(p.tangentX, `${path}.tangentX`);
+    const placement = {
+      base: ctx.point(p.base, `${path}.base`), alongX: ctx.point(p.alongX, `${path}.alongX`), alongZ: ctx.point(p.alongZ, `${path}.alongZ`),
+      tangent: p.tangent === undefined ? undefined : ctx.tangent(p.tangent, `${path}.tangent`), facing: p.facing && ctx.vec3(p.facing, `${path}.facing`),
+    };
+    const extend = ctx.optionalLength(p.extend, `${path}.extend`);
+    if (extend !== undefined) {
+      try {
+        placement.alongZ = extendedTop(placement, extend);
+      } catch (e) {
+        throw new BuildError((e as Error).message, `${path}.extend`);
+      }
+    }
+    const shape = { ...placement, tangentX: tangentX && ([tangentX[1], tangentX[2]] as const), sweep: p.sweep, tilt: p.tilt };
+    const block = glassSurface2(p.name, {
+      ...surfaceParams(ctx, p, path, placement, baseLineLength(shape)), tangentX: shape.tangentX, sweep: p.sweep, tilt: p.tilt,
+    });
+    ctx.addInstance(block);
+    ctx.put(p.name, { kind: "surfaces", blocks: [block] }, path);
+  },
+});
+
+export const honeycombSurface = defineOperator({
+  name: "honeycombSurface",
+  description: "One glass surface curved in two directions, placed like `surface2`, tiled with flat hexagons `cell` wide across the flats: neighbouring tiles share the rib between them, an edge rib runs along each side, and `offset` / `offsets` move the glass of every tile, or of single cells, forward (positive) or back along its own normal (see generators/honeycombSurface).",
+  schema: z.object({
+    op: z.literal("honeycombSurface"),
+    name: z.string(),
+    /** Surface type: profiles (`mainRib` for the honeycomb, `cutRib` for its edges) and the tile's glass. */
+    type: z.union([z.string(), SurfaceTypeSpec]),
+    base: PointSpec,
+    alongX: PointSpec,
+    alongZ: PointSpec,
+    /** Section tangent at the base, in the local frame (default [0, 0, 1]). */
+    tangent: TangentRef.optional(),
+    /** Direction of the base line at the base, local `[x, y]` (default [1, 0]: straight), or the name of one in `tangents`. */
+    tangentX: z.union([z.string(), Tangent2Spec]).optional(),
+    sweep: z.enum(["slide", "revolve"]).optional(),
+    facing: Vec3Spec.optional(),
+    /** Width of one hexagon across its flats (default: the tile's width). */
+    cell: Length.optional(),
+    /** "pointy" (default): corners up and down the section; "flat": corners along the base line. */
+    orientation: z.enum(["pointy", "flat"]).optional(),
+    /** Glass of every tile moved along its normal: forward (away from the structure) when positive. */
+    offset: Length.optional(),
+    /** Offsets of single cells, `[col, row]` from 0 at the bottom left, replacing `offset` there. */
+    offsets: z.array(z.object({ cells: z.array(z.tuple([z.number().int(), z.number().int()])), offset: Length }).strict()).optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const tangentX = p.tangentX === undefined ? undefined : ctx.tangent(p.tangentX, `${path}.tangentX`);
+    const placement = {
+      base: ctx.point(p.base, `${path}.base`), alongX: ctx.point(p.alongX, `${path}.alongX`), alongZ: ctx.point(p.alongZ, `${path}.alongZ`),
+      tangent: p.tangent === undefined ? undefined : ctx.tangent(p.tangent, `${path}.tangent`), facing: p.facing && ctx.vec3(p.facing, `${path}.facing`),
+    };
+    const { tile, profiles, ribColor } = surfaceParams(ctx, { type: p.type }, path, placement);
+    let block;
+    try {
+      block = honeycomb(p.name, {
+        ...placement, tangentX: tangentX && ([tangentX[1], tangentX[2]] as const), sweep: p.sweep, tile, profiles, ribColor,
+        cell: ctx.optionalLength(p.cell, `${path}.cell`),
+        orientation: p.orientation,
+        offset: ctx.optionalLength(p.offset, `${path}.offset`),
+        offsets: p.offsets?.map((o, i) => ({ cells: o.cells, offset: ctx.length(o.offset, `${path}.offsets[${i}].offset`) })),
+      });
+    } catch (e) {
+      throw new BuildError((e as Error).message, path);
+    }
+    ctx.addInstance(block);
     ctx.put(p.name, { kind: "surfaces", blocks: [block] }, path);
   },
 });
@@ -422,4 +523,4 @@ export const deck = defineOperator({
   },
 });
 
-export const glazingOperators = [surface, walls, roof, dome, floor, deck];
+export const glazingOperators = [surface, surface2, honeycombSurface, walls, roof, dome, floor, deck];

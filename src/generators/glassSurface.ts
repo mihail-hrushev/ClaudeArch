@@ -138,6 +138,8 @@ export interface GlassSurfaceParams {
 export interface CutPlane {
   readonly point: Vec3;
   readonly normal: Vec3;
+  /** Profile of the rib along this cut (glassSurface2; default: the type's cut rib). */
+  readonly profile?: Profile;
 }
 
 export type DetailRole = "mainRib" | "horizontalFrame" | "verticalFrame" | "tile";

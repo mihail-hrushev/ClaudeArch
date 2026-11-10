@@ -74,7 +74,15 @@ export type BuildResult =
   | { readonly kind: "members"; readonly ids: readonly string[] }
   | { readonly kind: "height"; readonly field: HeightField; readonly blocks?: readonly GlassSurface[] }
   | { readonly kind: "points"; readonly points: readonly Vec3[] }
-  | { readonly kind: "bays"; readonly margin: number; readonly sides: readonly BaySide[] };
+  | { readonly kind: "bays"; readonly margin: number; readonly sides: readonly BaySide[] }
+  | { readonly kind: "polyarch"; readonly arcs: readonly PolyArc[] };
+
+/** One arc of a polyarch: from `start` along `startTangent` to `end` (straight if the tangent runs along the chord). */
+export interface PolyArc {
+  readonly start: Vec3;
+  readonly end: Vec3;
+  readonly startTangent: Vec3;
+}
 
 export class BuildContext {
   readonly elements: Element[] = [];
@@ -559,7 +567,8 @@ export class BuildContext {
 
   /** The finished model: instances assembled, duplicates of shared members removed. */
   model(): Model {
-    const model = removeDuplicateMembers({ elements: [...assemble(this.instances).elements, ...this.elements] });
+    // Members built apart (e.g. by rotated copies of a group, from opposite ends of a curve) meet to within rounding: 0.1 mm.
+    const model = removeDuplicateMembers({ elements: [...assemble(this.instances).elements, ...this.elements] }, 1e-2);
     const finish = this.finish;
     if (!finish) return model;
     // The document's finish for every member without one of its own.

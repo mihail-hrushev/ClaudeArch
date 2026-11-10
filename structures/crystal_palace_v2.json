@@ -25,10 +25,10 @@
     "porchArch": { "circle": "60mm" }
   },
   "materials": {
-    "steel": { "color": [0, 0, 0], "metallic": 0.95, "roughness": 0.05 },
+    "steel": { "color": [0.8, 0.8, 0.8], "metallic": 0.05, "roughness": 0.01 },
+    "blueGlass": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [0.3, 0.3, 0.3] },
     "masonry": { "color": [0.34, 0.34, 0.33], "metallic": 0, "roughness": 0.9 },
-    "orangeGlass": { "color": [0.62, 0.85, 0.82], "alpha": 0.5, "reflection": 0.5 },
-    "blueGlass": { "color": [0.14, 0.2, 0.54], "alpha": 0.4, "metallic": 0.95, "roughness": 0.01, "emissive": [1, 0.5, 0] }
+    "orangeGlass": { "color": [0.62, 0.85, 0.82], "alpha": 0.5, "reflection": 0.5 }   
   },
   "glass": {
     "clear": { "width": "400mm", "length": "800mm", "thickness": "10mm", "material": "blueGlass", "align": "middle-center" },

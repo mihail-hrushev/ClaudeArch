@@ -9,10 +9,12 @@ import { circulationOperators } from "./circulation";
 import { layoutOperators } from "./layout";
 import { openingOperators } from "./openings";
 import { groupOperators } from "./groups";
+import { polyarchOperators } from "./polyarch";
 
 export const OPERATORS: readonly Operator[] = [
   ...glazingOperators,
   ...supportOperators,
+  ...polyarchOperators,
   ...circulationOperators,
   ...layoutOperators,
   ...openingOperators,

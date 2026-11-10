@@ -17,9 +17,9 @@ npm run structure -- --operators                # list the build operators
 
 - `index.html` – full-screen canvas
 - `src/main.ts` – engine + render loop
-- `src/scene.ts` – thin host: camera, environment, model registry (`?model=curitibaV2` default, `?model=crystalPalace`, `?model=test`), axes, spectator, stats
+- `src/scene.ts` – thin host: camera, environment, model registry (`?model=curitibaV2` default, `?model=crystalPalace`, `?model=test`), axes, spectator, stats, model panel (`M`: lists the built-in models and structure documents, a click loads one)
 - `src/models/` – Babylon-free model definitions, each exporting a `build(): Model` function and its camera `view`
-- `src/generators/` – parametric generators: `curitibaV2` (glass-surface greenhouse), `crystalPalace` (Palacio de Cristal, Madrid; its dimensions, marked published or estimate, are in `src/models/crystalPalace.ts`), `glassSurface`, `handrail`, `stair`
+- `src/generators/` – parametric generators: `curitibaV2` (glass-surface greenhouse), `crystalPalace` (Palacio de Cristal, Madrid; its dimensions, marked published or estimate, are in `src/models/crystalPalace.ts`), `glassSurface`, `glassSurface2` (its clone curved in two directions), `handrail`, `stair`
 - `src/json/` – JSON structure documents: `document.ts` (zod schema), `context.ts` (resolution of lengths, profiles, types, plans, points, results), `operators/` (the build operators), `build.ts` (document → model); see `structures/README.md`
 - `structures/` – structure documents, each a scene model (`?model=<file name>`) and a snapshot `structure.<name>`
 - `src/fem/` – element model: types, profiles, placement, discretize, dedupe, sweep, plate, vec, plan (outline sides, regular polygons, hull, offset)
