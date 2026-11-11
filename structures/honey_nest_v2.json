@@ -2,10 +2,10 @@
   "name": "honey_nest",
   "description": "A beehive of honeycomb glass: two revolved honeycombSurface halves make one ring of flat hexagonal amber tiles, rising upright from a round plinth and curving in to an open top. The cell (785.4 mm) fits 16 times into each half of the ring, so the two halves meet on the same honeycomb; the cells repeat round the ring, one tile type per course.",
   "material": "steel",
-  "view": { "target": [0, 0, 350], "radius": 2200, "alpha": -60, "beta": 75 },
+  "view": { "target": [0, 0, 200], "radius": 2600, "alpha": -60, "beta": 70 },
   "profiles": {
-    "rib": { "rect": ["50mm", "250mm"] },
-    "ringRib": { "rect": ["100mm", "300mm"] }
+    "rib": { "rect": ["50mm", "140mm"] },
+    "ringRib": { "rect": ["100mm", "220mm"] }
   },
   "materials": {
     "steel": { "color": [0, 0, 0], "metallic": 0.95, "roughness": 0.05 },
@@ -22,31 +22,33 @@
     }
   },
   "levels": {
+    "base":"4m",
     "radius": "4m",
     "plinth": "300mm",
-    "inward": "3m",
-    "top": "6.5m",
-    "cell": "1000mm"
+    "inward": "1.0m",
+    "top": "5.0m",
+    "cell": "785.398mm"
   },
   "plan": {
-    "plinth": { "regular": 48, "radius": "radius + 500mm" }
-  },
-  "groups": {
-    "segment": {
-      "build": [
-        { "op": "honeycombSurface", "name": "wall", "type": "comb", "offset":"-40mm",
-          "base": ["radius", 0, "plinth"], "alongX": ["radius / 2", "radius * 0.866025", "plinth"], "alongZ": ["radius", 0, "plinth + top"],
-          "tangent": [0.0, 1], "tangentX": [0.866025, -0.8], "sweep": "revolve", "cell": "cell" }
-      ]
-    }
+    "plinth": { "regular": 48, "radius": "radius + 500mm" },
+    "podium": { "rect": ["2 * radius + 1m", "2 * top + 1m"] }
   },
   "build": [
-    { "op": "slab", "name": "plinth", "plan": "plinth", "level": "plinth", "thickness": "plinth", "color": [0.34, 0.34, 0.33] },
-    { "op": "group", "name": "s0", "use": "segment" },
-    { "op": "group", "name": "s1", "use": "segment", "rotate": 60 },
-    { "op": "group", "name": "s2", "use": "segment", "rotate": 120 },
-    { "op": "group", "name": "s3", "use": "segment", "rotate": 180 },
-    { "op": "group", "name": "s4", "use": "segment", "rotate": 240 },
-    { "op": "group", "name": "s5", "use": "segment", "rotate": 300 }
+    { "op": "slab", "name": "podium", "plan": "podium", "level": "plinth", "thickness": "plinth", "color": [0.34, 0.34, 0.33] },
+
+    { "op": "honeycombSurface", "name": "wallRight", "type": "comb",
+      "base": ["radius - inward", "-top", "plinth"], "alongX": ["radius - inward", "top", "plinth"], "alongZ": ["radius - inward", "-top", "base"],
+      "tangent": [0, 1], "tangentX": [21, -20], "sweep": "revolve", "cell": "cell" },
+    { "op": "honeycombSurface", "name": "wallLeft", "type": "comb",
+      "base": ["inward - radius", "top", "plinth"], "alongX": ["inward - radius", "-top", "plinth"], "alongZ": ["inward - radius", "top", "base"],
+      "tangent": [0, 1], "tangentX": [21, -20], "sweep": "revolve", "cell": "cell" },
+    
+
+    { "op": "honeycombSurface", "name": "back", "type": "comb",
+      "base": ["radius", 0, "base"], "alongX": ["-radius", 0, "base"], "alongZ": ["radius", "-top", "-inward + base"], "facing": [0, 0, 1],
+      "tangent": [0, 1], "tangentX": [0, -1], "sweep": "revolve", "cell": "cell" },
+    { "op": "honeycombSurface", "name": "front", "type": "comb",
+      "base": ["-radius", 0, "base"], "alongX": ["radius", 0, "base"], "alongZ": ["-radius", "top", "-inward + base"], "facing": [0, 0, 1],
+      "tangent": [0, 1], "tangentX": [0, -1], "sweep": "revolve", "cell": "cell" }
   ]
 }

@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import type { Element } from "../../fem/types";
-import type { Profile } from "../../fem/profiles";
+import { type Profile, circleProfile, rectangleProfile } from "../../fem/profiles";
 import { type Vec3, add, dot, len, normalize, scale, sub, WORLD_Z } from "../../fem/vec";
 import { BuildError } from "../context";
 import { Color, GlassSpec, Length, Num, PointSpec, ProfileRef, TangentRef } from "../document";
@@ -189,6 +189,278 @@ export const window = defineOperator({
     // Spandrels: one solid piece in each top corner of the opening, between the frame and the outer arch.
     fill([[inRight, inTop], [0, inTop], ...outer.slice(0, crown + 1).reverse(), [inRight, spring]]);
     fill([[-inRight, inTop], [-inRight, spring], ...outer.slice(crown).reverse(), [0, inTop]]);
+
+    ctx.put(p.name, { kind: "members", ids }, path);
+  },
+});
+
+export const door = defineOperator({
+  name: "door",
+  description:
+    "A door in the line of a plan side, placed like `window`. Casing: two jambs and a head (no sill: the floor runs through), and with `transom` " +
+    "a transom bar across the jambs with a glass transom light above it. Under it one or two leaves, each hinged on its jamb and swung open by " +
+    "`opening` degrees to the `swing` side; a leaf's body has a hinge stile and a lock stile the full height, a solid bottom rail, a top rail and a " +
+    "mid rail, a solid panel below the mid rail and glass above it, hinges on its hinge edge and a vertical pull handle on both faces of its lock stile.",
+  schema: z.object({
+    op: z.literal("door"),
+    name: z.string(),
+    /** The plan side it stands in: ["plan", i]. */
+    side: z.tuple([z.string(), Num.int()]),
+    /** Distance of the door centre from the start of the side (default: the middle). */
+    at: Length.optional(),
+    /** Part i of n equal parts of the side, instead of `at` and `width`: [i, n]. */
+    part: z.tuple([Num.int().min(0), Num.int().min(1)]).optional(),
+    /** Offset of the door plane into the plan. */
+    inward: Length.optional(),
+    /** Level of the threshold: the foot of the jambs and the floor the leaves swing over. */
+    foot: Length,
+    /** Outer size of the casing (with `sidesOnEdges`: across the centre lines of its jambs). */
+    width: Length.optional(),
+    /** The jambs stand centred on the door's edges, on a rib line shared with the window or door next to it (default false). */
+    sidesOnEdges: z.boolean().optional(),
+    /** Height of the casing; or give `top` instead. */
+    height: Length.optional(),
+    /** Level of the top of the casing, instead of `height`. */
+    top: Length.optional(),
+    /** Level of the transom bar's centre line: the leaves stand below it, a glass transom light fills the casing above it (default: no transom). */
+    transom: Length.optional(),
+    /**
+     * Vertical ribs dividing the transom light: every `step` along the side, one of them `from` its start (default: on the door's
+     * centre), e.g. on the tile joints of a roof above so the two meet; `profile` default: the transom's.
+     */
+    transomRibs: z.object({ step: Length, from: Length.optional(), profile: ProfileRef.optional() }).strict().optional(),
+    /** Number of leaves (default 2: a pair meeting in the middle). */
+    leaves: z.union([z.literal(1), z.literal(2)]).optional(),
+    /** Jamb a single leaf hangs on, seen from outside the plan (default "left"). */
+    hinge: z.enum(["left", "right"]).optional(),
+    /** Opening angle of the leaves in degrees: 0 closed, 90 square to the wall (default 0). */
+    opening: Num.min(0).max(180).optional(),
+    /** Side the leaves open to: "in" into the plan, "out" away from it (default "in"). */
+    swing: z.enum(["in", "out"]).optional(),
+    /** Gap around each leaf: to the casing, to the floor and between two leaves (default 10 mm). */
+    clearance: Length.optional(),
+    casing: z.object({
+      /** The two jambs; a rect's first size runs along the wall, the second is its depth. */
+      vertical: ProfileRef,
+      /** The head; a rect's first size is its height in the wall. */
+      head: ProfileRef,
+      /** The transom bar (default: the head profile). */
+      transom: ProfileRef.optional(),
+    }).strict(),
+    /** The leaves' body: its members' sizes in the leaf (all optional). */
+    leaf: z.object({
+      /** Thickness of the body: the stiles' and rails' depth (default 50 mm). */
+      depth: Length.optional(),
+      /** Width of the stile on the hinge edge (default 100 mm). */
+      hingeStile: Length.optional(),
+      /** Width of the stile on the free edge, carrying the handle (default 120 mm). */
+      lockStile: Length.optional(),
+      /** Height of the top rail (default 100 mm). */
+      topRail: Length.optional(),
+      /** Height of the solid bottom rail (default 250 mm). */
+      bottomRail: Length.optional(),
+      /** Height of the mid rail (default 150 mm). */
+      midRail: Length.optional(),
+      /** Height of the mid rail's centre above the threshold (default 1000 mm). */
+      midRailAt: Length.optional(),
+      /** Hinges on each leaf (default 3). */
+      hinges: Num.int().min(0).optional(),
+      /**
+       * The glass above the mid rail split into `rows` x `columns` panes by glazing bars `bar` wide (default 30 mm),
+       * set into the body at half its depth (default one pane).
+       */
+      panes: z.object({ rows: Num.int().min(1).optional(), columns: Num.int().min(1).optional(), bar: Length.optional() }).strict().optional(),
+      /** Pull handle on the lock stile: its length (default 500 mm), its centre's height above the threshold (1050 mm) and its stand-off from the face (60 mm); false for none. */
+      handle: z.union([z.literal(false), z.object({ length: Length.optional(), at: Length.optional(), standoff: Length.optional() }).strict()]).optional(),
+      color: Color.optional(),
+    }).strict().optional(),
+    /** Glass of the leaves above their mid rails and of the transom light (default: window glass, 10 mm). */
+    glass: GlassSpec.optional(),
+    /** The solid panels below the mid rails (default: the body's colour, opaque, 20 mm). */
+    panel: GlassSpec.optional(),
+    /** Hinges and handles (default: brushed steel). */
+    hardware: z.object({ color: Color.optional(), metallic: Num.min(0).max(1).optional(), roughness: Num.min(0).max(1).optional() }).strict().optional(),
+    color: Color.optional(),
+  }).strict(),
+  run(ctx, p, path) {
+    const plan = ctx.plan(p.side[0], `${path}.side`);
+    const n = plan.sides.length;
+    const s = plan.sides[((p.side[1] % n) + n) % n];
+    /** A length field, or its default (in scene units: centimetres). */
+    const size = (v: z.infer<typeof Length> | undefined, fallback: number, field: string) => ctx.optionalLength(v, `${path}.${field}`) ?? fallback;
+
+    if (p.part && (p.at !== undefined || p.width !== undefined)) throw new BuildError("give a door either `part` or `at` and `width`", path);
+    if (!p.part && p.width === undefined) throw new BuildError("give a door a `width` (or a `part` of its side)", path);
+    if (p.part && p.part[0] >= p.part[1]) throw new BuildError(`part ${p.part[0]} of ${p.part[1]} does not exist`, `${path}.part`);
+    if (p.hinge && (p.leaves ?? 2) === 2) throw new BuildError("`hinge` is for a single leaf: a pair hangs on both jambs", `${path}.hinge`);
+    const width = p.part ? s.length / p.part[1] : ctx.length(p.width!, `${path}.width`);
+    const foot = ctx.length(p.foot, `${path}.foot`);
+    if ((p.height === undefined) === (p.top === undefined)) throw new BuildError("give a door either `height` or `top`", path);
+    const height = p.height !== undefined ? ctx.length(p.height, `${path}.height`) : ctx.length(p.top!, `${path}.top`) - foot;
+    const verticalProfile = ctx.profile(p.casing.vertical, `${path}.casing.vertical`);
+    const headProfile = ctx.profile(p.casing.head, `${path}.casing.head`);
+    const transomProfile = p.casing.transom ? ctx.profile(p.casing.transom, `${path}.casing.transom`) : headProfile;
+    const widthOf = (pr: Profile) => 2 * Math.max(...pr.outline.map(([y]) => Math.abs(y)));
+    const [verticalWidth, headWidth, transomWidth] = [widthOf(verticalProfile), widthOf(headProfile), widthOf(transomProfile)];
+
+    // Local coordinates: u across the door from its centre, v up from the foot; on the casing's centre lines.
+    const right = p.sidesOnEdges ? width / 2 : width / 2 - verticalWidth / 2;
+    const top = height - headWidth / 2;
+    const inRight = right - verticalWidth / 2;
+    const inTop = top - headWidth / 2;
+    const transom = p.transom === undefined ? undefined : ctx.length(p.transom, `${path}.transom`) - foot;
+    if (transom !== undefined && !(transom - transomWidth / 2 > 0 && transom + transomWidth / 2 < inTop)) {
+      throw new BuildError("the transom must lie inside the casing", `${path}.transom`);
+    }
+    // The leaves' opening: from the floor to the transom bar's underside, or to the head's.
+    const leafTop = transom === undefined ? inTop : transom - transomWidth / 2;
+    const clearance = size(p.clearance, 1, "clearance");
+    const count = p.leaves ?? 2;
+    const W = (2 * inRight - (count + 1) * clearance) / count;
+    const H = leafTop - 2 * clearance;
+
+    const along = p.part ? (s.length * (p.part[0] + 0.5)) / p.part[1] : p.at === undefined ? s.length / 2 : ctx.length(p.at, `${path}.at`);
+    const centre = add(add(s.a, scale(s.along, along)), scale(s.inward, ctx.optionalLength(p.inward, `${path}.inward`) ?? 0));
+    const origin: Vec3 = [centre[0], centre[1], foot];
+    const D = ([u, v]: P): Vec3 => add(add(origin, scale(s.along, u)), scale(WORLD_Z, v));
+    const normal = s.inward;
+    const color = p.color ?? ctx.color;
+    const ids: string[] = [];
+    const put = (el: Element) => { ids.push(ctx.addElement(el).id); };
+    const casingLook = color ? { color } : {};
+    const member = (id: string, profile: Profile, a: Vec3, b: Vec3, up: Vec3, look: object) =>
+      put({ id: `${p.name}_${id}`, kind: "straight", profile, start: a, end: b, up, ...look });
+
+    // Casing: the jambs from the floor, the head across them; the transom bar and its light.
+    member("casingRight", verticalProfile, D([right, 0]), D([right, top]), normal, casingLook);
+    member("head", headProfile, D([right, top]), D([-right, top]), normal, casingLook);
+    member("casingLeft", verticalProfile, D([-right, top]), D([-right, 0]), normal, casingLook);
+    const glassLook = ctx.glass(p.glass, `${path}.glass`, WINDOW_GLASS);
+    const glassThickness = size(p.glass?.thickness, 1, "glass.thickness");
+    if (p.transomRibs && transom === undefined) throw new BuildError("`transomRibs` divide a transom light: give the door a `transom`", `${path}.transomRibs`);
+    if (transom !== undefined) {
+      member("transom", transomProfile, D([-inRight, transom]), D([inRight, transom]), normal, casingLook);
+      const [v0, v1] = [transom + transomWidth / 2, inTop];
+      // Ribs on the grid along the side, those clear of the jambs; panes between them.
+      const cuts: number[] = [];
+      if (p.transomRibs) {
+        const step = ctx.length(p.transomRibs.step, `${path}.transomRibs.step`);
+        if (!(step > 0)) throw new BuildError("the transom ribs' step must be > 0", `${path}.transomRibs.step`);
+        const from = p.transomRibs.from === undefined ? along : ctx.length(p.transomRibs.from, `${path}.transomRibs.from`);
+        const ribProfile = p.transomRibs.profile ? ctx.profile(p.transomRibs.profile, `${path}.transomRibs.profile`) : transomProfile;
+        const half = widthOf(ribProfile) / 2;
+        for (let k = Math.ceil((along - inRight - from) / step); from + k * step - along < inRight; k++) {
+          const u = from + k * step - along;
+          if (u - half <= -inRight + 1e-6 || u + half >= inRight - 1e-6) continue;
+          member(`transomRib${cuts.length}`, ribProfile, D([u, v0]), D([u, v1]), normal, casingLook);
+          cuts.push(u);
+        }
+      }
+      const edges = [-inRight, ...cuts, inRight];
+      edges.slice(0, -1).forEach((u0, k) => {
+        const u1 = edges[k + 1];
+        put({
+          id: `${p.name}_transomLight${edges.length > 2 ? k : ""}`, kind: "plate", thickness: glassThickness, ...glassLook,
+          corners: [D([u0, v0]), D([u1, v0]), D([u1, v1]), D([u0, v1])],
+        });
+      });
+    }
+
+    // The leaf's body.
+    const L = p.leaf ?? {};
+    const depth = size(L.depth, 5, "leaf.depth");
+    const hingeStile = size(L.hingeStile, 10, "leaf.hingeStile");
+    const lockStile = size(L.lockStile, 12, "leaf.lockStile");
+    const topRail = size(L.topRail, 10, "leaf.topRail");
+    const bottomRail = size(L.bottomRail, 25, "leaf.bottomRail");
+    const midRail = size(L.midRail, 15, "leaf.midRail");
+    const midAt = size(L.midRailAt, 100, "leaf.midRailAt") - clearance; // above the leaf's foot
+    if (W <= hingeStile + lockStile || !(bottomRail < midAt - midRail / 2 && midAt + midRail / 2 < H - topRail)) {
+      throw new BuildError(`a door leaf ${W.toFixed(1)} x ${H.toFixed(1)} has no room for its stiles and rails`, `${path}.leaf`);
+    }
+    const bodyColor = L.color ?? color;
+    const bodyLook = bodyColor ? { color: bodyColor } : {};
+    const panelLook = ctx.glass(p.panel, `${path}.panel`, { color: (bodyColor ?? [0.2, 0.2, 0.2]) as Vec3, alpha: 1, reflection: 0.05 });
+    const panelThickness = size(p.panel?.thickness, 2, "panel.thickness");
+    const hardware = {
+      color: (p.hardware?.color ?? [0.72, 0.72, 0.7]) as Vec3, metallic: p.hardware?.metallic ?? 0.9, roughness: p.hardware?.roughness ?? 0.25,
+    };
+    const handle = L.handle === false ? undefined : {
+      length: size(L.handle ? L.handle.length : undefined, 50, "leaf.handle.length"),
+      at: size(L.handle ? L.handle.at : undefined, 105, "leaf.handle.at") - clearance,
+      standoff: size(L.handle ? L.handle.standoff : undefined, 6, "leaf.handle.standoff"),
+    };
+
+    const angle = ((p.opening ?? 0) * Math.PI) / 180;
+    const towards = p.swing === "out" ? -1 : 1;
+    const hung: { u: number; sign: 1 | -1 }[] = count === 2
+      ? [{ u: -inRight + clearance, sign: 1 }, { u: inRight - clearance, sign: -1 }]
+      : [p.hinge === "right" ? { u: inRight - clearance, sign: -1 } : { u: -inRight + clearance, sign: 1 }];
+    hung.forEach(({ u, sign }, k) => {
+      const id = (part: string) => `leaf${count === 2 ? k : ""}_${part}`;
+      // From the hinge across the leaf: along the wall when closed, turned towards the swing side as it opens.
+      const across = add(scale(s.along, sign * Math.cos(angle)), scale(normal, towards * Math.sin(angle)));
+      // The leaf's face normal, on the side it swings to.
+      const face = add(scale(normal, towards * Math.cos(angle)), scale(s.along, -sign * towards * Math.sin(angle)));
+      /** A point of the leaf: w across from the hinge edge, v up from its foot, d out of its mid-plane towards the swing side. */
+      const at = (w: number, v: number, d = 0): Vec3 => add(add(D([u, clearance + v]), scale(across, w)), scale(face, d));
+      // Stiles the full height, rails between them.
+      member(id("hingeStile"), rectangleProfile(hingeStile, depth), at(hingeStile / 2, 0), at(hingeStile / 2, H), face, bodyLook);
+      member(id("lockStile"), rectangleProfile(lockStile, depth), at(W - lockStile / 2, 0), at(W - lockStile / 2, H), face, bodyLook);
+      const [w0, w1] = [hingeStile, W - lockStile];
+      member(id("bottomRail"), rectangleProfile(bottomRail, depth), at(w0, bottomRail / 2), at(w1, bottomRail / 2), face, bodyLook);
+      member(id("midRail"), rectangleProfile(midRail, depth), at(w0, midAt), at(w1, midAt), face, bodyLook);
+      member(id("topRail"), rectangleProfile(topRail, depth), at(w0, H - topRail / 2), at(w1, H - topRail / 2), face, bodyLook);
+      // Panels between the stiles: solid below the mid rail, glass above; counter-clockwise seen from the swing side.
+      const plate = (part: string, [a, b]: readonly [number, number], v0: number, v1: number, thickness: number, look: object) => put({
+        id: `${p.name}_${id(part)}`, kind: "plate", thickness, ...look,
+        corners: sign * towards > 0 ? [at(a, v0), at(b, v0), at(b, v1), at(a, v1)] : [at(b, v0), at(a, v0), at(a, v1), at(b, v1)],
+      } as Element);
+      plate("panel", [w0, w1], bottomRail, midAt - midRail / 2, panelThickness, panelLook);
+      // Glass above the mid rail: one pane, or rows x columns between glazing bars.
+      const [g0, g1] = [midAt + midRail / 2, H - topRail];
+      const rows = L.panes?.rows ?? 1;
+      const columns = L.panes?.columns ?? 1;
+      const bar = size(L.panes?.bar, 3, "leaf.panes.bar");
+      const paneW = (w1 - w0 - (columns - 1) * bar) / columns;
+      const paneH = (g1 - g0 - (rows - 1) * bar) / rows;
+      if (!(paneW > 0 && paneH > 0)) throw new BuildError("the leaf's glass has no room for so many panes", `${path}.leaf.panes`);
+      const barLook = bodyLook;
+      for (let c = 1; c < columns; c++) {
+        const w = w0 + c * (paneW + bar) - bar / 2;
+        member(id(`barV${c - 1}`), rectangleProfile(bar, depth / 2), at(w, g0), at(w, g1), face, barLook);
+      }
+      for (let r = 1; r < rows; r++) {
+        const v = g0 + r * (paneH + bar) - bar / 2;
+        member(id(`barH${r - 1}`), rectangleProfile(bar, depth / 2), at(w0, v), at(w1, v), face, barLook);
+      }
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < columns; c++) {
+          const [a, b] = [w0 + c * (paneW + bar), w0 + c * (paneW + bar) + paneW];
+          const [v0, v1] = [g0 + r * (paneH + bar), g0 + r * (paneH + bar) + paneH];
+          plate(rows * columns > 1 ? `glass_r${r}c${c}` : "glass", [a, b], v0, v1, glassThickness, glassLook);
+        }
+      }
+      // Hinges: knuckles on the hinge edge, on the face the leaf swings to.
+      const knuckles = L.hinges ?? 3;
+      const span = 12;
+      for (let j = 0; j < knuckles; j++) {
+        const v = knuckles === 1 ? H / 2 : 25 + ((H - 50) * j) / (knuckles - 1);
+        member(id(`hinge${j}`), circleProfile(1.2), at(0, v - span / 2, depth / 2), at(0, v + span / 2, depth / 2), face, hardware);
+      }
+      // Pull handle on both faces of the lock stile: a vertical bar on two stand-offs.
+      if (handle) {
+        const w = W - lockStile / 2;
+        const [lo, hi] = [handle.at - handle.length / 2, handle.at + handle.length / 2];
+        for (const [side, d] of [["Out", -1], ["In", 1]] as const) {
+          const off = d * (depth / 2 + handle.standoff);
+          member(id(`handle${side}`), circleProfile(1.5), at(w, lo, off), at(w, hi, off), across, hardware);
+          for (const [end, v] of [["Low", lo + 5], ["High", hi - 5]] as const) {
+            member(id(`handle${side}${end}`), circleProfile(0.8), at(w, v, (d * depth) / 2), at(w, v, off), WORLD_Z, hardware);
+          }
+        }
+      }
+    });
 
     ctx.put(p.name, { kind: "members", ids }, path);
   },
@@ -648,4 +920,4 @@ export const archWindow = defineOperator({
   },
 });
 
-export const openingOperators = [window, archSurface, archWindow];
+export const openingOperators = [window, door, archSurface, archWindow];

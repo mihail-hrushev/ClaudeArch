@@ -1,0 +1,34 @@
+{
+  "name": "single_surface",
+  "description": "One flat glass surface: base line from [0, 0, 0] to [10000mm, 0, 0], section rising to [0, 5000mm, 10000mm]. Glass cells 500 x 1500 mm.",
+  "material": "steel",
+  "view": { "target": [500, 250, 500], "radius": 2800, "alpha": -60, "beta": 65 },
+  "profiles": {
+    "rib": { "rect": ["50mm", "140mm"] },
+    "cutRib": { "rect": ["80mm", "200mm"] },
+    "frame": { "rect": ["30mm", "80mm"] },
+    "mullion": { "rect": ["30mm", "60mm"] }
+  },
+  "materials": {
+    "steel": { "color": [0, 0, 0], "metallic": 0.95, "roughness": 0.05 },
+    "blueGlass": { "color": [0.62, 0.85, 0.82], "alpha": 0.5, "reflection": 0.5 }
+  },
+  "glass": {
+    "cell": { "width": "400mm", "length": "1200mm", "thickness": "12mm", "gap": "15mm", "material": "blueGlass" }
+  },
+  "surfaces": {
+    "glazing": {
+      "ribStep": "1500mm",
+      "tile": { "preset": "cell" },
+      "profiles": { "mainRib": "rib", "cutRib": "cutRib", "horizontalFrame": "frame", "verticalFrame": "mullion" }
+    }
+  },
+  "build": [
+    { "op": "surface", "name": "surface", "type": "glazing",
+      "base": ["-5m", 0, 0], "alongX": ["5m", 0, 0], "alongZ": [0, "10m", "10m"] },
+    { "op": "surface", "name": "right", "type": "glazing",
+      "base": ["3m", "-5m", 0], "alongX": ["3m", "5m", 0], "alongZ": [0, 0, "5m"] },
+    { "op": "surface", "name": "left", "type": "glazing",
+      "base": ["-3m", "5m", 0], "alongX": ["-3m", "-5m", 0], "alongZ": [0, 0, "5m"] }
+  ]
+}

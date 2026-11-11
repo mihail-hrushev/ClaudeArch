@@ -13,11 +13,12 @@ function sameStraight(a: Element, b: Element, tol: number): boolean {
   );
 }
 
-/** Same polyline member: same profile and coincident nodes in the same order. */
+/** Same polyline member: same profile and coincident nodes, in the same order or reversed (e.g. built from the two surfaces it joins). */
 function samePolyline(a: Element, b: Element, tol: number): boolean {
   if (a.kind !== "polyline" || b.kind !== "polyline") return false;
   if (a.profile.name !== b.profile.name || a.nodes.length !== b.nodes.length) return false;
-  return a.nodes.every((p, i) => near(p, b.nodes[i], tol));
+  const last = b.nodes.length - 1;
+  return a.nodes.every((p, i) => near(p, b.nodes[i], tol)) || a.nodes.every((p, i) => near(p, b.nodes[last - i], tol));
 }
 
 /**
